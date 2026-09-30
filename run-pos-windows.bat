@@ -15,12 +15,7 @@ where go >nul 2>&1 || (
   pause
   exit /b 1
 )
-where ngrok >nul 2>&1 || (
-  echo [ERROR] ngrok was not found in PATH.
-  echo Install ngrok and run "ngrok config add-authtoken YOUR_TOKEN" once.
-  pause
-  exit /b 1
-)
+
 
 if not exist "%ROOT%server\node_modules" (
   echo [ERROR] Server dependencies are missing. Run: cd server ^&^& npm install
