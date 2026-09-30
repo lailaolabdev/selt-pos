@@ -76,6 +76,18 @@ export class PaymentsController {
     return this.paymentsService.getStatus(paymentId);
   }
 
+  @Post(':paymentId/cancel')
+  @ApiOperation({
+    summary: 'Cancel a waiting PhaJay payment and clear the POS payment queue',
+  })
+  @ApiParam({ name: 'paymentId', example: '66f0c2d4b7f1c9a001234999' })
+  cancelPayment(
+    @Param('paymentId') paymentId: string,
+    @Body() data: CreatePhaJayPaymentLinkDto,
+  ) {
+    return this.paymentsService.cancelPayment(paymentId, data.deviceId);
+  }
+
   @Get(':paymentId/receipt')
   @ApiOperation({
     summary: 'Get immutable receipt data for a paid transaction',

@@ -1,5 +1,6 @@
 let activeAudio: HTMLAudioElement | null = null;
 let soundQueue = Promise.resolve();
+let clickAudioContext: AudioContext | null = null;
 
 const playAudioUrl = async (audioUrl: string) => {
   if (activeAudio) {
@@ -69,4 +70,38 @@ export const playPosSounds = (audioUrls: string[]) => {
     });
 
   return soundQueue;
+};
+
+// A tiny native click keeps the kiosk responsive without adding another asset
+// or queueing button sounds behind the spoken guidance/payment sounds.
+export const playPosClick = () => {
+  try {
+    const AudioContextClass = window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    clickAudioContext ||= new AudioContextClass();
+    const play = () => {
+      if (!clickAudioContext) return;
+      const oscillator = clickAudioContext.createOscillator();
+      const gain = clickAudioContext.createGain();
+      const now = clickAudioContext.currentTime;
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(620, now);
+      oscillator.frequency.exponentialRampToValueAtTime(420, now + 0.045);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.09, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+      oscillator.connect(gain);
+      gain.connect(clickAudioContext.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.065);
+    };
+    if (clickAudioContext.state === 'suspended') {
+      void clickAudioContext.resume().then(play).catch(() => undefined);
+    } else {
+      play();
+    }
+  } catch {
+    // Audio feedback is optional; never interrupt a payment action.
+  }
 };

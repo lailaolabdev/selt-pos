@@ -109,6 +109,13 @@ async function createWindow() {
     await child.loadURL(target.href); return true;
   });
   await mainWindow.loadURL(url);
+  const installedPrinters = await mainWindow.webContents.getPrintersAsync();
+  const currentPrinter = queue.state.settings.deviceName;
+  if (queue.state.settings.adapter === 'system' && !currentPrinter && installedPrinters.length) {
+    const defaultPrinter = installedPrinters.find(printer => printer.isDefault) || installedPrinters[0];
+    queue.state.settings.deviceName = defaultPrinter.name;
+    queue.save();
+  }
   await queue.resume();
 }
 if (!app.requestSingleInstanceLock()) app.quit();

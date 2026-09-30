@@ -25,6 +25,17 @@ Production serves the bundled UI at `http://127.0.0.1:17831` and opens fullscree
 
 Sign in to Admin, open the printer settings at `/admin/printer`, choose an OS-installed printer and 58 or 80 mm paper, save, then print a test. Install the manufacturer's driver and set roll paper/cutter settings in the OS. Mock mode records successful simulated jobs without sending paper. Save settings before testing; the test uses saved settings.
 
+### Windows USB thermal printer (80 mm)
+
+The POS sends receipts through the Windows Print Spooler. It does not open the USB device directly, so the thermal printer must first be installed in Windows as a normal printer.
+
+1. Install the printer's Windows driver or the manufacturer's setup utility, then connect the USB cable and power on the printer.
+2. In **Settings → Bluetooth & devices → Printers & scanners**, confirm that the printer appears and print a Windows test page. Rename it if the store needs a clear name, such as `POS-Thermal-80mm`.
+3. Open **Printing preferences** for that printer and set an 80 mm roll/custom paper size, zero or minimum margins, portrait orientation, and the cutter option if the driver exposes one. Disable “Fit to page” or scaling.
+4. Start the Electron POS, open **Admin → Printer**, select the Windows printer, choose **80 mm**, save, and press **Print test**. A new installation is selected automatically when Windows reports it as the default printer.
+
+If Windows shows the device only under **Ports (COM & LPT)** and it does not appear in **Printers & scanners**, the printer has no Windows print driver installed. Install the correct driver first. Direct ESC/POS-over-COM or raw USB printing is a separate adapter and is not used by the current spooler-based receipt function.
+
 The app bundles a Lao font (SIL Open Font License in `public/fonts/OFL.txt`). Native printing renders a separate HTML receipt, waits for the font, and submits silently to the configured OS device. Printer enumeration confirms an installed driver, not physical connectivity or paper availability. Validate margins, long receipts and cutter behavior on the actual printer/OS.
 
 ## Configuration

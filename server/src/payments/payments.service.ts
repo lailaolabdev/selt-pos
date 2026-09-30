@@ -204,6 +204,30 @@ export class PaymentsService {
     };
   }
 
+  async cancelPayment(paymentId: string, deviceId: string) {
+    if (!/^[a-f0-9]{24}$/i.test(paymentId) || !deviceId) {
+      throw new BadRequestException('Invalid payment cancellation request');
+    }
+    const payment = await this.paymentModel.findById(paymentId);
+    if (!payment || payment.deviceId !== deviceId) {
+      throw new BadRequestException('Payment transaction not found');
+    }
+    if (payment.status === PaymentStatus.PAID) {
+      throw new BadRequestException('Paid payment cannot be cancelled');
+    }
+    if (payment.status !== PaymentStatus.CANCELLED) {
+      payment.status = PaymentStatus.CANCELLED;
+      await payment.save();
+      this.emitPaymentUpdate(payment);
+    }
+    return {
+      paymentId: String(payment._id),
+      orderNo: payment.orderNo,
+      amount: payment.amount,
+      status: payment.status,
+    };
+  }
+
   async getReceipt(paymentId: string) {
     if (!/^[a-f0-9]{24}$/i.test(paymentId)) {
       throw new BadRequestException('Invalid payment id');

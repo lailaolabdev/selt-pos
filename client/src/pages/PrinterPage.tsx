@@ -10,7 +10,12 @@ export function PrinterPage() {
   const refresh = useCallback(async () => {
     if (!desktop) return;
     const [next, devices] = await Promise.all([desktop.getState(), desktop.listPrinters()]);
-    setState(next); setSettings(next.settings); setPrinters(devices);
+    const configuredPrinterExists = devices.some(device => device.name === next.settings.deviceName);
+    const defaultPrinter = devices.find(device => device.isDefault) || devices[0];
+    const selectedSettings = next.settings.adapter === 'system' && !configuredPrinterExists && defaultPrinter
+      ? { ...next.settings, deviceName: defaultPrinter.name }
+      : next.settings;
+    setState(next); setSettings(selectedSettings); setPrinters(devices);
   }, [desktop]);
   useEffect(() => { void refresh().catch(() => setMessage(text.error)); }, [refresh]);
   async function action(work: () => Promise<unknown>, success = text.saved) {

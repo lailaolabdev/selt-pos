@@ -298,6 +298,8 @@ POS_API_URL=http://192.168.1.100:3000 npm run desktop:start
 
 หากยังไม่มี printer ให้เลือกโหมดจำลองและบันทึก ระบบจะบันทึกงานพิมพ์โดยไม่ส่งกระดาษ
 
+สำหรับ Windows + thermal printer USB 80mm ให้ติดตั้ง driver ของเครื่องก่อน และตรวจว่าเครื่องปรากฏใน `Settings → Bluetooth & devices → Printers & scanners` จากนั้นตั้งกระดาษม้วน 80mm ใน Printing preferences, ปิดการย่อ/ขยายหน้า และเลือกเครื่องที่หน้า `Admin → Printer` ของ POS ระบบใช้ Windows Print Spooler ไม่ได้เปิด USB โดยตรง ถ้าเครื่องขึ้นเฉพาะ `Ports (COM & LPT)` ต้องติดตั้ง driver printer ให้ถูกต้องก่อน
+
 เมื่อ server ยืนยัน payment เป็น `PAID` Desktop จะอ่านรายการจาก transaction แล้วสร้างงานพิมพ์ สถานะ “ส่งงานพิมพ์แล้ว” หมายถึง OS รับงานแล้ว ให้ตรวจใบเสร็จที่เครื่องพิมพ์ด้วย หากสถานะไม่แน่ชัด ให้ตรวจทั้งกระดาษและคิวของ OS ก่อนสั่งพิมพ์ซ้ำ
 
 รายละเอียดเพิ่มเติม: [คู่มือ Desktop และคิวพิมพ์](client/DESKTOP.md)

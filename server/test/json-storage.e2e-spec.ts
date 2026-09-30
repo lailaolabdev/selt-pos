@@ -236,6 +236,41 @@ describe('JSON server API (no MongoDB, no real payment)', () => {
     }
   });
 
+  it('cancels a waiting QR payment so the POS can start a fresh checkout', async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ transactionId: 'cancel-test', qrCode: 'CANCEL-QR' }),
+          { status: 200 },
+        ),
+      );
+    try {
+      const payment = await request(app.getHttpServer())
+        .post('/payments/phajay/qr')
+        .send({ deviceId: 'QR-FAIL', bank: 'bcel' })
+        .expect(201);
+      const id = body<{ paymentId: string }>(payment).paymentId;
+      const cancelled = await request(app.getHttpServer())
+        .post(`/payments/phajay/${id}/cancel`)
+        .send({ deviceId: 'QR-FAIL' })
+        .expect(201);
+      expect(cancelled.body).toEqual(
+        expect.objectContaining({ paymentId: id, status: 'CANCELLED' }),
+      );
+      const status = await request(app.getHttpServer())
+        .get(`/payments/phajay/${id}/status`)
+        .expect(200);
+      expect(body<{ status: string }>(status).status).toBe('CANCELLED');
+      await request(app.getHttpServer())
+        .post(`/payments/phajay/${id}/cancel`)
+        .send({ deviceId: 'QR-FAIL' })
+        .expect(201);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it.each(['bcel', 'jdb', 'ldb', 'ib', 'stb', 'm-money'])(
     'uses the selected production bank %s even with sandbox path overrides',
     async (bank) => {
