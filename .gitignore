@@ -18,11 +18,7 @@ hub_scanner/cart_scanner
 hub_scanner/*.exe
 hub_scanner/*.out
 
-# Environment files and secrets
-**/.env
-**/.env.*
-!**/.env.example
-!**/.env.*.example
+# Environment files are intentionally tracked for the demo deployment.
 
 # Local/runtime data
 server/storage/data/
@@ -50,4 +46,3 @@ Thumbs.db
 
 # Local nested Git metadata; the repository is managed from this root
 server/.git/
-
