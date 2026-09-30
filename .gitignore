@@ -1,0 +1,53 @@
+# Dependencies
+**/node_modules/
+
+# Build output and packaged Electron apps
+**/dist/
+**/build/
+client/release/
+*.app/
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.zip
+*.blockmap
+
+# Compiled binaries (build from source instead)
+hub_scanner/cart_scanner
+hub_scanner/*.exe
+hub_scanner/*.out
+
+# Environment files and secrets
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+
+# Local/runtime data
+server/storage/data/
+**/*.log
+**/logs/
+**/coverage/
+**/.nyc_output/
+**/*.tsbuildinfo
+**/.temp/
+**/.tmp/
+
+# Test artifacts and local reports
+**/test-results/
+**/playwright-report/
+**/artifacts/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+# Local nested Git metadata; the repository is managed from this root
+server/.git/
+
