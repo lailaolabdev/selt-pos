@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host --port 5173",
     "build": "tsc -b && vite build",
+    "electron:install": "node node_modules/electron/install.js",
+    "postinstall": "node node_modules/electron/install.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "desktop:dev": "node scripts/desktop-dev.cjs",
