@@ -1,6 +1,6 @@
-# Lightweight POS server storage
+# 4B-easy-POS server storage
 
-The server uses a JSON file by default. MongoDB is optional and is not connected in JSON mode. API routes, RFID Socket.IO events, admin login, payment snapshots and receipt responses remain compatible with the existing client.
+Production runs on MongoDB. The Docker Compose stack starts a persistent MongoDB container and connects the API to it on port `3001`. JSON storage remains available only for local tests or legacy demo data. API routes, RFID Socket.IO events, admin login, payment snapshots and receipt responses remain compatible with the existing client.
 
 Run from the `server/` directory:
 
@@ -9,11 +9,20 @@ npm run build
 npm run start:prod
 ```
 
+Docker production stack (uses the locally built `dist/`):
+
+```sh
+docker compose up -d --build
+docker compose ps
+docker compose logs -f pos-server
+```
+
 Development: `npm run start:dev`. Configuration in `.env`:
 
 ```dotenv
-STORAGE_DRIVER=json
-JSON_DB_PATH=storage/data/pos.json
+STORAGE_DRIVER=mongo
+MONGO_URI=mongodb://localhost:27017/pos_rfid
+PORT=3001
 ```
 
 The file contains products, tags, sessions, payments and admin password hashes. Its format is `{ "version": 1, "collections": { "products": [], "tags": [], "sessions": [], "payments": [], "admins": [] } }`. Existing ObjectIds and timestamps are preserved. Passwords retain their scrypt hashes. Without an existing file, the configured default admin is created on startup; use the normal product/tag APIs to add demo data.

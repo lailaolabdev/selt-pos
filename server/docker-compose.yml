@@ -1,0 +1,38 @@
+services:
+  mongo:
+    image: mongo:8.0
+    container_name: 4b-easy-pos-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: pos_rfid
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' | grep 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  pos-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: 4b-easy-pos-server:local
+    container_name: 4b-easy-pos-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENV: production
+      NODE_ENV: production
+      PORT: 3001
+      STORAGE_DRIVER: mongo
+      MONGO_URI: mongodb://mongo:27017/pos_rfid
+      BIO_DEMO_MODE: "false"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+volumes:
+  mongo_data:

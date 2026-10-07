@@ -1,4 +1,8 @@
-const { SerialPort } = require('serialport');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawn } = require('node:child_process');
 
 function rasterCommand(bitmap, width, height) {
   const bytesPerRow = Math.ceil(width / 8);
@@ -21,33 +25,37 @@ function rasterCommand(bitmap, width, height) {
   ]);
 }
 
-function openPort(path, baudRate) {
-  return new Promise((resolve, reject) => {
-    const port = new SerialPort({ path, baudRate, rtscts: true, autoOpen: false });
-    port.open(error => error ? reject(error) : resolve(port));
-  });
-}
-
-function writePort(port, data) {
-  return new Promise((resolve, reject) => {
-    port.write(data, error => {
-      if (error) return reject(error);
-      port.drain(drainError => drainError ? reject(drainError) : resolve());
-    });
-  });
-}
-
 async function printRaster({ bitmap, width, height, portPath = 'COM1', baudRate = 9600 }) {
-  const port = await openPort(portPath, baudRate);
+  if (process.platform !== 'win32') throw new Error('Raw COM printer requires Windows');
+  const file = path.join(os.tmpdir(), `4b-pos-print-${crypto.randomUUID()}.bin`);
+  const data = Buffer.concat([
+    Buffer.from([0x1b, 0x40]),
+    rasterCommand(bitmap, width, height),
+    Buffer.from([0x1b, 0x64, 0x03]),
+    Buffer.from([0x1d, 0x56, 0x00]),
+  ]);
+  await fs.writeFile(file, data);
   try {
-    await writePort(port, Buffer.concat([
-      Buffer.from([0x1b, 0x40]),
-      rasterCommand(bitmap, width, height),
-      Buffer.from([0x1b, 0x64, 0x03]),
-      Buffer.from([0x1d, 0x56, 0x00]),
-    ]));
+    const script = [
+      '$ErrorActionPreference = "Stop"',
+      'Add-Type -AssemblyName System.IO.Ports',
+      '$port = New-Object System.IO.Ports.SerialPort($args[0], [int]$args[1], [System.IO.Ports.Parity]::None, 8, [System.IO.Ports.StopBits]::One)',
+      '$port.Handshake = [System.IO.Ports.Handshake]::RequestToSend',
+      '$port.Open()',
+      '$bytes = [System.IO.File]::ReadAllBytes($args[2])',
+      '$port.Write($bytes, 0, $bytes.Length)',
+      'Start-Sleep -Milliseconds 250',
+      '$port.Close()',
+    ].join('; ');
+    await new Promise((resolve, reject) => {
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, portPath, String(baudRate), file], { windowsHide: true });
+      let error = '';
+      child.stderr.on('data', chunk => { error += chunk.toString(); });
+      child.on('error', reject);
+      child.on('close', code => code === 0 ? resolve() : reject(new Error(error.trim() || `COM printer exited with code ${code}`)));
+    });
   } finally {
-    await new Promise(resolve => port.close(() => resolve()));
+    await fs.rm(file, { force: true });
   }
 }
 
