@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useDeviceSession } from '@/hooks/useDeviceSession';
@@ -45,12 +45,36 @@ export const ProductsPage = () => {
     const [showAddModal, setShowAddModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [formData, setFormData] = useState<ProductForm>(emptyProductForm);
+    const [duplicateTagIds, setDuplicateTagIds] = useState<string[]>([]);
     const editRequest = useRef(0);
     const lastSeenTags = useRef(new Set<string>());
     const scannedTagIds = parseTagIds(formData.rfidTags);
     const tagTarget = formData.expectedTagCount;
     const remainingTagCount = tagTarget > 0 ? Math.max(tagTarget - scannedTagIds.length, 0) : 0;
     const hasTooManyTags = tagTarget > 0 && scannedTagIds.length > tagTarget;
+    const tagKey = scannedTagIds.join('|');
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!showAddModal || scannedTagIds.length === 0) {
+            setDuplicateTagIds([]);
+            return () => { cancelled = true; };
+        }
+        const timer = window.setTimeout(async () => {
+            try {
+                const response = await api.post('/tags/check-duplicates', { tagIds: scannedTagIds });
+                if (cancelled) return;
+                const currentProductId = editingProduct?._id;
+                const duplicates = (response.data.duplicates || [])
+                    .filter((tag: { productId?: string }) => !currentProductId || String(tag.productId) !== currentProductId)
+                    .map((tag: { tagId: string }) => tag.tagId);
+                setDuplicateTagIds(duplicates);
+            } catch (error) {
+                if (!cancelled) console.error('Could not check duplicate RFID tags:', error);
+            }
+        }, 250);
+        return () => { cancelled = true; window.clearTimeout(timer); };
+    }, [editingProduct?._id, showAddModal, tagKey]);
 
     const rfid = useDeviceSession(showAddModal ? 'CHECK' : 'IDLE', data => {
         if (!showAddModal) return;
@@ -149,6 +173,7 @@ export const ProductsPage = () => {
         lastSeenTags.current.clear();
         setShowAddModal(false);
         setEditingProduct(null);
+        setDuplicateTagIds([]);
         setFormData(emptyProductForm);
     };
 
@@ -406,14 +431,14 @@ export const ProductsPage = () => {
 
                                 <div className={cn(
                                     "min-h-32 rounded-xl border bg-background p-3 transition-colors",
-                                    hasTooManyTags ? "border-destructive/60" : remainingTagCount === 0 && tagTarget > 0 ? "border-green-500/50" : "border-border"
+                                    duplicateTagIds.length > 0 ? "border-red-500 bg-red-50/40" : hasTooManyTags ? "border-destructive/60" : remainingTagCount === 0 && tagTarget > 0 ? "border-green-500/50" : "border-border"
                                 )}>
                                     {scannedTagIds.length > 0 ? (
                                         <div className="flex flex-wrap gap-2">
                                             {scannedTagIds.map((tagId) => (
                                                 <div
                                                     key={tagId}
-                                                    className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2 font-mono text-xs"
+                                                    className={cn("flex items-center gap-2 rounded-lg border px-3 py-2 font-mono text-xs", duplicateTagIds.includes(tagId) ? "border-red-500 bg-red-100 text-red-700" : "border-border bg-muted")}
                                                 >
                                                     <span>{tagId}</span>
                                                     <button
@@ -433,6 +458,7 @@ export const ProductsPage = () => {
                                         </div>
                                     )}
                                 </div>
+                                {duplicateTagIds.length > 0 && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Tag ຊ້ຳ: {duplicateTagIds.join(', ')} — ກະລຸນາເອົາ Tag ນີ້ອອກກ່ອນບັນທຶກ</p>}
 
                                 <div className="relative">
                                     <textarea
@@ -468,7 +494,7 @@ export const ProductsPage = () => {
                                         addProductMutation.mutate(formData);
                                     }
                                 }}
-                                disabled={addProductMutation.isPending || updateProductMutation.isPending}
+                                disabled={addProductMutation.isPending || updateProductMutation.isPending || duplicateTagIds.length > 0}
                                 className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-bold shadow-lg hover:shadow-primary/20 transition-all flex items-center gap-2"
                             >
                                 {(addProductMutation.isPending || updateProductMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}

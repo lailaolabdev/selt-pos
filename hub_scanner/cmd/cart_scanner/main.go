@@ -205,12 +205,7 @@ func main() {
 }
 
 func openSerialPort(name string, baud int) (serial.Port, error) {
-	mode := &serial.Mode{
-		BaudRate: baud,
-		DataBits: 8,
-		Parity:   serial.NoParity,
-		StopBits: serial.OneStopBit,
-	}
+	mode := &serial.Mode{BaudRate: baud, DataBits: 8, Parity: serial.NoParity, StopBits: serial.OneStopBit}
 	opened, err := serial.Open(name, mode)
 	if err != nil {
 		return nil, err
@@ -219,22 +214,16 @@ func openSerialPort(name string, baud int) (serial.Port, error) {
 		_ = opened.Close()
 		return nil, err
 	}
-	// The macOS USB-serial driver can report a successful open before the
-	// adapter has finished restoring its termios state. The first read during
-	// that window may fail with ENXIO ("device not configured"). Match the
-	// initial connection's settle delay before handing the port to the loop.
+	// Give the macOS USB-serial driver time to restore its termios state.
 	time.Sleep(500 * time.Millisecond)
 	return opened, nil
 }
 
-// reconnectRFIDPort keeps the gateway alive when macOS resets or briefly loses
-// the USB-serial adapter. It waits for the reader and reuses the last baud rate.
 func reconnectRFIDPort(lastPort string, baud int) (string, bool) {
 	if port != nil {
 		_ = port.Close()
 		port = nil
 	}
-
 	for {
 		selector := portSelectorFromEnv()
 		candidates := discoverPorts()
@@ -249,9 +238,6 @@ func reconnectRFIDPort(lastPort string, baud int) (string, bool) {
 			time.Sleep(2 * time.Second)
 			continue
 		}
-
-		// Prefer the previous port when it is still present. This prevents a
-		// second USB serial device from silently becoming the RFID reader.
 		if selector.port == "" && lastPort != "" {
 			for _, available := range candidates {
 				if available.name == lastPort {
@@ -261,7 +247,6 @@ func reconnectRFIDPort(lastPort string, baud int) (string, bool) {
 				}
 			}
 		}
-
 		fmt.Printf("🔁 Reconnecting to %s at %d baud...\n", candidate.name, baud)
 		opened, openErr := openSerialPort(candidate.name, baud)
 		if openErr == nil {
@@ -287,9 +272,20 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 	lastSyncAttempt := time.Time{}
 	needsSync := false
 	batch := scanBatch{}
+	// Push changed tag sets quickly for the POS socket, while keeping the
+	// three-second batch as the authoritative STABLE snapshot.
+	realtimeUpdates := len(portName) > 0
+	lastScanningIDs := []string{}
+	lastTagChangeAt := time.Time{}
+	const scanUpdateDebounce = 350 * time.Millisecond
 
 	for {
 		n, err := port.Read(buf)
+
+		if err != nil {
+			fmt.Println("❌ Serial read error:", err, "— reconnect the reader and restart scanner.")
+			return
+		}
 
 		nowRead := time.Now()
 		if n > 0 {
@@ -317,13 +313,8 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 			}
 		}
 
-		// Some USB-serial drivers return both data and an error when the device
-		// disappears. Consume the bytes first; otherwise the final tag frame is
-		// silently lost and the current basket can be reported as empty.
 		if err != nil {
 			fmt.Println("❌ Serial read error:", err, "— attempting automatic reconnect.")
-			// Tests and injected readers do not have a discoverable OS port.
-			// Keep their old one-shot behavior while real devices reconnect.
 			if connectedPort == "" {
 				return
 			}
@@ -334,9 +325,6 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 				return
 			}
 			decoder = tagDecoder{}
-			// Keep the last working baud after reconnect. Re-running baud
-			// detection here can switch a healthy reader away from 9600 while
-			// the tag is still being held on it.
 			detection = newBaudDetection(bauds, detection.current(), time.Now())
 			detection.confirmed = baudWasConfirmed
 			bytesSinceCheck = 0
@@ -382,8 +370,21 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 
 		activeIDsAfter := getActiveTagIDs()
 
+		previousObserved := append([]string{}, batch.observed...)
 		wasPending := batch.pending
 		batch.observe(activeIDsAfter, now)
+		if realtimeUpdates && !sameTagIDs(activeIDsAfter, previousObserved) {
+			lastTagChangeAt = now
+		}
+		if realtimeUpdates && !lastTagChangeAt.IsZero() && now.Sub(lastTagChangeAt) >= scanUpdateDebounce && !sameTagIDs(activeIDsAfter, lastScanningIDs) {
+			fmt.Printf("⚡ RFID set changed: %d tags — pushing SCANNING update\n", len(activeIDsAfter))
+			if sendCaptureToServer(activeIDsAfter, "SCANNING") {
+				lastScanningIDs = append([]string{}, activeIDsAfter...)
+				lastTagChangeAt = time.Time{}
+			} else {
+				lastTagChangeAt = now
+			}
+		}
 		if !wasPending && batch.pending {
 			fmt.Printf("⏳ Checking RFID set for 3 seconds (%d unique tags)...\n", len(activeIDsAfter))
 		}
@@ -392,12 +393,15 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 			isStable = len(ids) > 0
 			fmt.Printf("✅ RFID set checked for 3 seconds: %d unique tags [%s]\n", len(ids), strings.Join(ids, ", "))
 			needsSync = !sendCaptureToServer(ids, status)
+			if realtimeUpdates && !needsSync {
+				lastScanningIDs = append([]string{}, ids...)
+				lastTagChangeAt = time.Time{}
+			}
 			lastSyncAttempt = time.Now()
 		}
 
-		// Retry only failed captures. A successful basket is sent once and stays
-		// quiet until its unique tag set changes; this keeps ADD and CHECKOUT
-		// flows simple and avoids repeatedly re-processing the same tags.
+		// Only refresh/retry a settled basket. A newly changed set must complete
+		// its collection window before being sent to the server.
 		if !batch.pending && needsSync && time.Since(lastSyncAttempt) >= 5*time.Second {
 			needsSync = !sendCaptureToServer(activeIDsAfter, captureStatus(activeIDsAfter))
 			lastSyncAttempt = time.Now()

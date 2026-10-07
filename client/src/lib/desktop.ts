@@ -1,6 +1,6 @@
 export type PrintStatus = 'queued' | 'printing' | 'submitted' | 'failed' | 'uncertain' | 'mock';
 export interface PrintJob { id: string; paymentId: string; status: PrintStatus; attempts: number; createdAt: string; error?: string }
-export interface PrinterSettings { deviceName: string; paperWidth: 58 | 80; adapter: 'system' | 'mock' }
+export interface PrinterSettings { deviceName: string; paperWidth: 58 | 80; adapter: 'system' | 'raw' | 'mock' }
 export interface PrinterInfo { name: string; displayName: string; isDefault: boolean; status: number }
 export interface DesktopState { settings: PrinterSettings; jobs: PrintJob[] }
 declare global {

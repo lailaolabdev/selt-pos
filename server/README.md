@@ -234,6 +234,9 @@ Expected response shape:
 - `PATCH /tags/confirm-sale` - mark tags ເປັນ sold ຫຼັງຊຳລະເງິນ.
 - `POST /payments/phajay/payment-link` - create PhaJay Payment Link ຈາກກະຕ່າ checkout ປັດຈຸບັນ.
 - `POST /payments/phajay/qr` - create PhaJay QR ແບບຢູ່ໜ້າ POS ເດີມ.
+- `POST /payments/phajay/bio/intent` - ສ້າງ Palm/Vein payment intent ແລະສັ່ງ Bio POS ເປີດໜ້າສະແກນ.
+- `POST /payments/phajay/bio/webhook` - ຮັບ webhook `palm_payment.succeeded` ພ້ອມກວດ HMAC-SHA256.
+- `POST /tags/dev/capture-product` - ຈຳລອງການສະແກນ RFID ສຳລັບ dev ເທົ່ານັ້ນ (`ENV=dev`).
 - `POST /payments/phajay/webhook` - webhook ຈາກ PhaJay; ເມື່ອ `PAYMENT_COMPLETED` ຈະ mark tags ເປັນ sold ແລະ clear basket.
 - `GET /payments/phajay/:paymentId/status` - POS frontend ໃຊ້ poll ສະຖານະການຊຳລະ.
 - `GET /inventory/summary` - ເບິ່ງ stock ຕາມ product.

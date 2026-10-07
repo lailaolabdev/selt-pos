@@ -53,6 +53,15 @@ export class TagsController {
     return this.sessionsService.handleCapture(data.deviceId, data.tagIds, data.status);
   }
 
+  @Post('dev/capture-product')
+  @ApiOperation({
+    summary: 'Development-only simulated RFID scan',
+    description: 'Adds one generated DEV tag for a product and feeds it through the normal capture flow. Requires ENV=dev.',
+  })
+  async captureDevProduct(@Body() data: { deviceId: string; productId: string }) {
+    return this.sessionsService.simulateDevProduct(data.deviceId, data.productId);
+  }
+
   @Post('sync')
   @UseGuards(AdminAuthGuard)
   @ApiBearerAuth('admin-token')
@@ -66,6 +75,13 @@ export class TagsController {
     @Body() data: SyncTagsDto,
   ) {
     return this.tagsService.sync(data);
+  }
+
+  @Post('check-duplicates')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('admin-token')
+  async checkDuplicates(@Body() data: { tagIds?: string[] }) {
+    return { duplicates: await this.tagsService.findExistingTagIds(data.tagIds || []) };
   }
 
   @Patch('confirm-sale')

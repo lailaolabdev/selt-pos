@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiBody,
   ApiOperation,
@@ -67,6 +68,20 @@ export class PaymentsController {
   })
   createQr(@Body() data: CreatePhaJayQrDto) {
     return this.paymentsService.createPhaJayQrPayment(data.deviceId, data.bank);
+  }
+
+  @Post('bio/intent')
+  createBioIntent(@Body() data: CreatePhaJayPaymentLinkDto) {
+    return this.paymentsService.createBioPaymentIntent(data.deviceId);
+  }
+
+  @Post('bio/webhook')
+  handleBioWebhook(
+    @Body() payload: Record<string, unknown>,
+    @Headers('x-webhook-signature') signature: string | undefined,
+    @Req() request: Request & { rawBody?: Buffer },
+  ) {
+    return this.paymentsService.handleBioWebhook(payload, request.rawBody, signature);
   }
 
   @Get(':paymentId/status')

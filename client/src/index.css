@@ -12,8 +12,36 @@
 .pos-pay-ready { animation: pos-pay-nudge 2.4s ease-in-out infinite; }
 .pos-pay-ready .pos-pay-arrow { animation: pos-pay-arrow 2.4s ease-in-out infinite; }
 .pos-pay-ready:hover, .pos-pay-ready:focus-visible { animation-play-state: paused; }
+@keyframes bio-hand-tap {
+  0%, 100% { transform: translateX(-28px) translateY(8px) rotate(-8deg); opacity: .72; }
+  45%, 62% { transform: translateX(42px) translateY(-4px) rotate(2deg); opacity: 1; }
+}
+@keyframes bio-scan-glow {
+  0%, 35%, 100% { opacity: .25; transform: scaleX(.65); }
+  50%, 72% { opacity: 1; transform: scaleX(1); }
+}
+@keyframes bio-terminal-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(16 185 129 / .22); }
+  50% { box-shadow: 0 0 0 14px rgb(16 185 129 / 0); }
+}
+@keyframes payment-success-pop {
+  0% { opacity: 0; transform: scale(.72) translateY(12px); }
+  65% { opacity: 1; transform: scale(1.04) translateY(0); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes payment-success-ring {
+  0% { box-shadow: 0 0 0 0 rgb(16 185 129 / .45); }
+  100% { box-shadow: 0 0 0 22px rgb(16 185 129 / 0); }
+}
+.bio-hand-tap { animation: bio-hand-tap 2.8s ease-in-out infinite; transform-origin: center; }
+.bio-scan-glow { animation: bio-scan-glow 2.8s ease-in-out infinite; transform-origin: center; }
+.bio-terminal-pulse { animation: bio-terminal-pulse 2.8s ease-out infinite; }
+.payment-success-pop { animation: payment-success-pop .55s cubic-bezier(.2,.8,.2,1) both; }
+.payment-success-ring { animation: payment-success-ring 1.2s ease-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   .pos-pay-ready, .pos-pay-ready .pos-pay-arrow { animation: none; }
+  .bio-hand-tap, .bio-scan-glow, .bio-terminal-pulse { animation: none; }
+  .payment-success-pop, .payment-success-ring { animation: none; }
 }
 @font-face { font-family: "Noto Sans Lao"; src: url("/fonts/noto-sans-lao.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 

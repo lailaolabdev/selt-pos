@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Package, ClipboardList, Settings, LogOut } from 'lucide-react';
+import { Package, ClipboardList, Settings, LogOut, Home } from 'lucide-react';
 import { clearAdminSession, getAdminSession } from '@/lib/auth';
 import { printerText } from '@/lib/desktop';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,13 @@ export const Sidebar = () => {
             </div>
 
             <nav className="flex-1 space-y-1">
+                <NavLink
+                    to="/"
+                    className="flex items-center gap-3 rounded-md px-3 py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                    <Home className="h-5 w-5" />
+                    <span className="font-bold">ໄປໜ້າ POS</span>
+                </NavLink>
                 {navItems.map((item) => (
                     <NavLink
                         key={item.path}

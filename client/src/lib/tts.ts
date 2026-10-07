@@ -1,4 +1,5 @@
 let activeAudio: HTMLAudioElement | null = null;
+let buttonAudio: HTMLAudioElement | null = null;
 let soundQueue = Promise.resolve();
 let clickAudioContext: AudioContext | null = null;
 
@@ -72,9 +73,19 @@ export const playPosSounds = (audioUrls: string[]) => {
   return soundQueue;
 };
 
-// A tiny native click keeps the kiosk responsive without adding another asset
-// or queueing button sounds behind the spoken guidance/payment sounds.
+// Button feedback plays immediately and does not wait behind guidance sounds.
 export const playPosClick = () => {
+  try {
+    buttonAudio?.pause();
+    buttonAudio = new Audio('/sound/button-press.mp3');
+    buttonAudio.volume = 0.7;
+    void buttonAudio.play().catch(() => undefined);
+  } catch {
+    // Audio feedback is optional; never interrupt a payment action.
+  }
+};
+
+const playTagTone = (frequency: number, endFrequency: number) => {
   try {
     const AudioContextClass = window.AudioContext ||
       (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -86,15 +97,15 @@ export const playPosClick = () => {
       const gain = clickAudioContext.createGain();
       const now = clickAudioContext.currentTime;
       oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(620, now);
-      oscillator.frequency.exponentialRampToValueAtTime(420, now + 0.045);
+      oscillator.frequency.setValueAtTime(frequency, now);
+      oscillator.frequency.exponentialRampToValueAtTime(endFrequency, now + 0.09);
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.09, now + 0.005);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
       oscillator.connect(gain);
       gain.connect(clickAudioContext.destination);
       oscillator.start(now);
-      oscillator.stop(now + 0.065);
+      oscillator.stop(now + 0.11);
     };
     if (clickAudioContext.state === 'suspended') {
       void clickAudioContext.resume().then(play).catch(() => undefined);
@@ -102,6 +113,9 @@ export const playPosClick = () => {
       play();
     }
   } catch {
-    // Audio feedback is optional; never interrupt a payment action.
+    // Audio feedback is optional; never interrupt RFID scanning.
   }
 };
+
+export const playPosTagAdded = () => playTagTone(660, 1040);
+export const playPosTagRemoved = () => playTagTone(420, 220);

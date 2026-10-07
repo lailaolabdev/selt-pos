@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomBytes } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PHAJAY_QR_BANKS } from './dto/payment.dto';
 import { Model } from 'mongoose';
 import { SessionsService } from '../sessions/sessions.service';
@@ -14,6 +15,7 @@ import { TagsService } from '../tags/tags.service';
 import {
   PaymentStatus,
   PaymentTransaction,
+  PaymentProvider,
 } from './schemas/payment-transaction.schema';
 
 interface PhaJayPaymentLinkResponse {
@@ -27,6 +29,11 @@ interface PhaJayQrResponse {
   transactionId?: string;
   qrCode?: string;
   link?: string;
+}
+
+interface BioIntentResponse {
+  data?: { intentId?: string; expiresInSeconds?: number };
+  error?: { message?: string };
 }
 
 @Injectable()
@@ -184,6 +191,39 @@ export class PaymentsService {
     };
   }
 
+  async createBioPaymentIntent(deviceId: string) {
+    const snapshot = await this.sessionsService.getSnapshot(deviceId);
+    const amount = Number(snapshot.result?.totalPrice || 0);
+    const tagIds: string[] = Array.isArray(snapshot.result?.tagIds) ? snapshot.result.tagIds : [];
+    const items: Record<string, unknown>[] = Array.isArray(snapshot.result?.items)
+      ? snapshot.result.items as Record<string, unknown>[] : [];
+    if (!deviceId) throw new BadRequestException('deviceId is required');
+    if (!Number.isSafeInteger(amount) || amount <= 0 || tagIds.length === 0) {
+      throw new BadRequestException('Checkout basket is empty or not ready for payment');
+    }
+
+    const orderNo = this.createOrderNo();
+    const payment = await new this.paymentModel({
+      orderNo, deviceId, amount, description: `4B-easy-POS BIO ${orderNo}`,
+      items, tagIds, provider: PaymentProvider.BIO, status: PaymentStatus.WAITING,
+    }).save();
+    try {
+      const response = await this.requestBioIntent({ amount, orderNo, deviceId });
+      const intentId = response.data?.intentId;
+      if (!intentId) throw new InternalServerErrorException(response.error?.message || 'Bio Payment did not return intentId');
+      const expiresInSeconds = Number(response.data?.expiresInSeconds || 300);
+      payment.providerIntentId = intentId;
+      payment.providerTransactionId = intentId;
+      payment.expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
+      await payment.save();
+      return { paymentId: String(payment._id), orderNo, amount, status: payment.status, provider: PaymentProvider.BIO, intentId, expiresInSeconds };
+    } catch (error) {
+      payment.status = PaymentStatus.FAILED;
+      await payment.save();
+      throw error;
+    }
+  }
+
   async getStatus(paymentId: string) {
     const payment = await this.paymentModel.findById(paymentId).lean();
     if (!payment) {
@@ -291,7 +331,8 @@ export class PaymentsService {
 
       payment.status = PaymentStatus.PAID;
       payment.paidAt = new Date();
-      await this.tagsService.confirmSale(String(payment._id), payment.tagIds);
+      // Demo mode: payment must not consume RFID stock. Keep the tag linked
+      // to its product so the same tag can be scanned again during demos.
       await this.sessionsService.clearSession(payment.deviceId);
     } else if (
       ['PAYMENT_FAILED', 'PAYMENT_CANCELLED', 'FAILED', 'CANCELLED'].includes(
@@ -305,6 +346,71 @@ export class PaymentsService {
     await payment.save();
     this.emitPaymentUpdate(payment);
     return { message: 'OK' };
+  }
+
+  async handleBioWebhook(payload: Record<string, unknown>, rawBody: Buffer | undefined, signature?: string) {
+    const demoMode = process.env.BIO_DEMO_MODE?.trim().toLowerCase() === 'true';
+    if (!demoMode) {
+      const secret = process.env.BIO_WEBHOOK_SECRET?.trim();
+      if (!secret) throw new ServiceUnavailableException('BIO_WEBHOOK_SECRET is not configured');
+      if (!rawBody || !signature) throw new BadRequestException('Invalid Bio Payment webhook signature');
+      const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+      const actual = Buffer.from(signature.trim(), 'utf8');
+      const expectedBuffer = Buffer.from(expected, 'utf8');
+      if (actual.length !== expectedBuffer.length || !timingSafeEqual(actual, expectedBuffer)) {
+        throw new BadRequestException('Invalid Bio Payment webhook signature');
+      }
+    }
+    const orderNo = this.toOptionalString(payload.orderNo);
+    const transactionId = this.toOptionalString(payload.transactionId);
+    const paidAmount = Number(payload.amount ?? payload.txnAmount);
+    let payment = await this.findPaymentForWebhook(orderNo, undefined, transactionId);
+    if (!payment && demoMode && Number.isFinite(paidAmount)) {
+      payment = await this.paymentModel.findOne({
+        provider: PaymentProvider.BIO,
+        status: PaymentStatus.WAITING,
+        amount: paidAmount,
+      });
+    }
+    if (!payment) return { message: 'PAYMENT_NOT_FOUND' };
+    payment.webhookPayloads = [...(payment.webhookPayloads || []), payload];
+    payment.provider = PaymentProvider.BIO;
+    payment.providerTransactionId = transactionId || payment.providerTransactionId;
+    const currency = this.toOptionalString(payload.currency);
+    const idFromProvider = this.toOptionalString(payload.deviceId) || this.toOptionalString(payload.terminalId);
+    const idMatches = Boolean(
+      idFromProvider &&
+      [payment.deviceId, process.env.BIO_DEVICE_ID?.trim()].includes(idFromProvider),
+    );
+    const amountMatches = Number.isFinite(paidAmount) && paidAmount === payment.amount;
+    const validPayment = demoMode
+      ? idMatches || amountMatches
+      : payload.event === 'palm_payment.succeeded' && currency === 'LAK' && amountMatches;
+    if (!validPayment) return { message: 'IGNORED' };
+    if (payment.status !== PaymentStatus.PAID) {
+      payment.status = PaymentStatus.PAID;
+      payment.paidAt = payload.paidAt ? new Date(String(payload.paidAt)) : new Date();
+      await this.sessionsService.clearSession(payment.deviceId);
+      await payment.save();
+      this.emitPaymentUpdate(payment);
+    } else {
+      await payment.save();
+    }
+    return { message: 'OK' };
+  }
+
+  private async requestBioIntent(body: { amount: number; orderNo: string; deviceId: string }) {
+    const baseUrl = (process.env.BIO_PAYMENT_BASE_URL || 'https://bio-payment-api.phajay.co').replace(/\/$/, '');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    headers['X-Device-Id'] = process.env.BIO_DEVICE_ID?.trim() || body.deviceId;
+    const response = await fetch(`${baseUrl}/api/v1/palm/payment-intents`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ amount: body.amount, currency: 'LAK', orderNo: body.orderNo }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data: unknown = await response.json().catch(() => ({}));
+    if (!response.ok) throw new ServiceUnavailableException({ message: 'Bio Payment intent request failed', statusCode: response.status, data });
+    return (data && typeof data === 'object' ? data : {}) as BioIntentResponse;
   }
 
   private async requestPhaJayPaymentLink(body: {

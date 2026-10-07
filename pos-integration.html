@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="lo">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bio Payment API — ຄູ່ມືເຊື່ອມຕໍ່ POS (Palm-Vein Payment)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Lao:wght@400;500;600;700&family=Noto+Serif+Lao:wght@600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --paper:      #f4f6f6;
+    --surface:    #ffffff;
+    --surface-2:  #eaefee;
+    --code-bg:    #0f1518;
+    --code-fg:    #d7e2e0;
+    --code-dim:   #7d918e;
+
+    --ink:        #101319;
+    --ink-2:      #3c4a49;
+    --ink-3:      #6b7a78;
+    --line:       #d3dcda;
+    --line-2:     #bfcbc9;
+
+    --accent:     #0f766e;
+    --accent-2:   #134e4a;
+    --accent-bg:  #e2efed;
+    --warn:       #a16207;
+    --warn-bg:    #f7efdc;
+    --danger:     #a52834;
+    --danger-bg:  #f7e6e7;
+    --post:       #1d4ed8;
+    --post-bg:    #e7edfc;
+    --get:        #0f766e;
+    --get-bg:     #e2efed;
+    --patch:      #92400e;
+    --patch-bg:   #f8edd9;
+
+    --radius: 4px;
+    --maxw: 980px;
+
+    --f-display: "Noto Serif Lao", "Noto Sans Lao", Georgia, serif;
+    --f-body: "Noto Sans Lao", "Noto Sans", system-ui, -apple-system, sans-serif;
+    --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0c1013;
+      --surface:    #12181b;
+      --surface-2:  #182126;
+      --code-bg:    #080c0e;
+      --code-fg:    #cdd9d7;
+      --code-dim:   #6c807d;
+
+      --ink:        #e8efee;
+      --ink-2:      #b3c1bf;
+      --ink-3:      #7e8f8c;
+      --line:       #223034;
+      --line-2:     #2e4045;
+
+      --accent:     #5eead4;
+      --accent-2:   #99f6e4;
+      --accent-bg:  #102a29;
+      --warn:       #e0b155;
+      --warn-bg:    #2b2313;
+      --danger:     #f0868f;
+      --danger-bg:  #2c1517;
+      --post:       #8fb2ff;
+      --post-bg:    #141e33;
+      --get:        #5eead4;
+      --get-bg:     #102a29;
+      --patch:      #f0c178;
+      --patch-bg:   #2b2112;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--paper); }
+  body {
+    margin: 0;
+    font-family: var(--f-body);
+    color: var(--ink);
+    line-height: 1.7;
+    font-size: 15.5px;
+  }
+  .wrap { display: flex; max-width: 1280px; margin: 0 auto; }
+
+  /* ── Sidebar nav ───────────────────────────────────────────── */
+  nav.toc {
+    position: sticky; top: 0; align-self: flex-start;
+    width: 230px; flex-shrink: 0;
+    height: 100vh; overflow-y: auto;
+    padding: 28px 18px 40px 24px;
+    border-right: 1px solid var(--line);
+  }
+  nav.toc .brand {
+    font-family: var(--f-mono); font-size: 12px; letter-spacing: .06em;
+    color: var(--ink-3); text-transform: uppercase; margin-bottom: 18px;
+  }
+  nav.toc a {
+    display: block; font-size: 13.5px; color: var(--ink-2);
+    text-decoration: none; padding: 5px 0; border-left: 2px solid transparent;
+    padding-left: 10px; margin-left: -12px;
+  }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .grp { margin-top: 16px; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-3); }
+
+  .lang-switch { position: absolute; top: 28px; right: 48px; font-family: var(--f-mono); font-size: 12.5px; }
+  .lang-switch a { color: var(--ink-3); text-decoration: none; }
+  .lang-switch a.active { color: var(--accent); font-weight: 700; }
+  .lang-switch span { color: var(--line-2); margin: 0 6px; }
+
+  main { flex: 1; min-width: 0; padding: 40px 48px 120px; max-width: var(--maxw); }
+
+  h1 { font-family: var(--f-display); font-size: 34px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .subtitle { color: var(--ink-2); font-size: 16px; margin-bottom: 28px; }
+  h2 { font-family: var(--f-display); font-size: 23px; margin: 0 0 14px; padding-top: 4px; }
+  h3 { font-size: 16.5px; margin: 26px 0 10px; color: var(--ink); }
+  p { color: var(--ink-2); margin: 0 0 14px; }
+  strong { color: var(--ink); }
+  a { color: var(--accent); }
+  code.inline, code {
+    font-family: var(--f-mono); font-size: 0.88em;
+    background: var(--surface-2); color: var(--accent-2);
+    padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line);
+  }
+
+  section.block {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 26px 28px; margin-bottom: 22px;
+  }
+  section.plain { margin-bottom: 40px; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--f-mono); font-weight: 700; font-size: 12px;
+    padding: 3px 9px; border-radius: 4px; letter-spacing: .03em;
+  }
+  .pill.post { color: var(--post); background: var(--post-bg); }
+  .pill.get { color: var(--get); background: var(--get-bg); }
+  .pill.patch { color: var(--patch); background: var(--patch-bg); }
+  .route-path { font-family: var(--f-mono); font-size: 14.5px; color: var(--ink); word-break: break-all; }
+  .route-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .route-desc { margin: 10px 0 18px; }
+
+  .auth-badge {
+    display: inline-block; font-family: var(--f-mono); font-size: 11.5px;
+    color: var(--ink-3); background: var(--surface-2); border: 1px solid var(--line);
+    padding: 2px 8px; border-radius: 10px; margin-left: 2px;
+  }
+
+  pre {
+    background: var(--code-bg); color: var(--code-fg);
+    font-family: var(--f-mono); font-size: 13px; line-height: 1.65;
+    padding: 16px 18px; border-radius: 6px; overflow-x: auto;
+    margin: 0 0 16px;
+  }
+  pre .c1 { color: var(--code-dim); }
+  pre .str { color: #a7d9a1; }
+  pre .key { color: #8fc6e8; }
+  pre .num { color: #e8b589; }
+
+  table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 13.8px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--ink-3); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  td code { white-space: nowrap; }
+
+  .callout {
+    border-radius: 6px; padding: 14px 16px; margin: 0 0 16px;
+    border: 1px solid var(--line); font-size: 14px;
+  }
+  .callout.warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); color: var(--ink); }
+  .callout.danger { background: var(--danger-bg); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); color: var(--ink); }
+  .callout.info { background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); color: var(--ink); }
+  .callout b { display: block; margin-bottom: 4px; }
+  .callout p { margin: 0; color: var(--ink-2); }
+
+  ol.steps { padding-left: 22px; }
+  ol.steps li { margin-bottom: 10px; color: var(--ink-2); }
+  ol.steps li b { color: var(--ink); }
+
+  .flow {
+    display: flex; flex-wrap: wrap; gap: 0; margin: 4px 0 20px;
+    font-family: var(--f-mono); font-size: 12.5px;
+  }
+  .flow .step {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 14px; flex: 1 1 150px;
+  }
+  .flow .step .n { color: var(--accent); font-weight: 700; margin-right: 4px; }
+  .flow .arrow { display: flex; align-items: center; padding: 0 8px; color: var(--ink-3); }
+
+  hr.rule { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+  footer { color: var(--ink-3); font-size: 12.5px; padding-top: 10px; }
+
+  @media (max-width: 860px) {
+    nav.toc { display: none; }
+    main { padding: 28px 20px 90px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <div class="brand">Bio Payment API</div>
+  <a href="#overview">ພາບລວມ</a>
+  <a href="#prereq">ສິ່ງທີ່ຕ້ອງກະກຽມ</a>
+  <a href="#auth">ການຢືນຢັນຕົວຕົນ</a>
+  <div class="grp">ຂັ້ນຕອນທີ 1</div>
+  <a href="#step-webhook">ຕັ້ງຄ່າ Webhook</a>
+  <div class="grp">ຂັ້ນຕອນທີ 2</div>
+  <a href="#step-intent">ສັ່ງເປີດໜ້າສະແກນຈ່າຍເງິນ</a>
+  <div class="grp">ຂັ້ນຕອນທີ 3</div>
+  <a href="#step-callback">ຮັບຜົນຜ່ານ Webhook</a>
+  <div class="grp">ອ້າງອີງ</div>
+  <a href="#errors">ລະຫັດຂໍ້ຜິດພາດ</a>
+  <a href="#notes">ຂໍ້ຄວນຮູ້ / FAQ</a>
+</nav>
+
+<main>
+
+  <div class="lang-switch"><a href="pos-integration.html">ไทย</a><span>·</span><a class="active" href="pos-integration.lo.html">ລາວ</a></div>
+
+  <h1>ຄູ່ມືເຊື່ອມຕໍ່ POS</h1>
+  <div class="subtitle">Palm-Vein Payment — ສັ່ງເປີດໜ້າສະແກນຈ່າຍເງິນຈາກລະບົບ POS ແລ້ວຮັບຜົນຜ່ານ Webhook</div>
+
+  <section id="overview" class="plain">
+    <h2>ພາບລວມ</h2>
+    <p>
+      ເອກະສານນີ້ກວມເອົາ<strong>ສະເພາະ route ທີ່ຈຳເປັນ</strong> ສຳລັບລະບົບ POS ພາຍນອກທີ່ຕ້ອງການສັ່ງໃຫ້
+      ເຄື່ອງສະແກນຝ່າມື (F310P) ຂອງຮ້ານ ເປີດໜ້າຈ່າຍເງິນຂຶ້ນມາເອງ ແລ້ວລໍຮັບຜົນການຈ່າຍເງິນແບບ
+      asynchronous ຜ່ານ Webhook — ບໍ່ແມ່ນເອກະສານ API ເຕັມຮູບແບບຂອງລະບົບ
+    </p>
+    <div class="flow">
+      <div class="step"><span class="n">1</span>POS ຍິງ<br><code>POST /palm/payment-intents</code></div>
+      <div class="arrow">→</div>
+      <div class="step"><span class="n">2</span>ເຄື່ອງ terminal<br>ເປີດໜ້າສະແກນຂຶ້ນເອງ</div>
+      <div class="arrow">→</div>
+      <div class="step"><span class="n">3</span>ລູກຄ້າສະແກນຝ່າມື<br>ລະບົບຕັດເງິນອັດຕະໂນມັດ</div>
+      <div class="arrow">→</div>
+      <div class="step"><span class="n">4</span>bio-payment-api<br>ຍິງ Webhook ກັບຄືນໄປຫາ POS</div>
+    </div>
+    <p>
+      POS ບໍ່ມີສ່ວນກ່ຽວຂ້ອງກັບການສະແກນຝ່າມືຫຼືການຕັດເງິນໂດຍກົງ — ໜ້າທີ່ຂອງ POS ມີແຕ່
+      <strong>(ກ)</strong> ບອກຈຳນວນເງິນທີ່ຈະເກັບ ແລ້ວໃຫ້ເຄື່ອງ terminal ເປີດໜ້າສະແກນຂຶ້ນເອງ ແລະ
+      <strong>(ຂ)</strong> ລໍຮັບການແຈ້ງຜົນເມື່ອຈ່າຍສຳເລັດ
+    </p>
+  </section>
+
+  <section id="prereq" class="plain">
+    <h2>ສິ່ງທີ່ຕ້ອງກະກຽມ</h2>
+    <ol class="steps">
+      <li><b>ບັນຊີຮ້ານ (Shop)</b> — ສະໝັກ/ເຂົ້າສູ່ລະບົບແລ້ວທີ່ <code>bio-payment-api</code></li>
+      <li><b>ເຄື່ອງ terminal ທີ່ provision ແລ້ວ</b> — ແອັບ shop-terminal ຢູ່ເຄື່ອງ F310P ຕ້ອງ login
+        ເຂົ້າຮ້ານນີ້ແລ້ວຢ່າງໜ້ອຍໜຶ່ງເທື່ອ (ລະບົບສ້າງ credential ໃຫ້ອັດຕະໂນມັດຕອນ login)</li>
+      <li><b>Device ID ຂອງເຄື່ອງ terminal</b> — ເບິ່ງໄດ້ຈາກໜ້າ <em>About this shop</em> ໃນແອັບ
+        shop-terminal (ຊ່ອງ “Device ID”) ເປັນຄ່າຄົງທີ່ຕໍ່ເຄື່ອງ ບໍ່ປ່ຽນແມ່ນລົບແອັບ/login ໃໝ່</li>
+      <li><b>ປາຍທາງຮັບ Webhook (webhookUrl)</b> — URL ຝ່າຍ POS ທີ່ເປີດຮັບ <code>POST</code>
+        ຈາກອິນເຕີເນັດໄດ້ (ຕ້ອງເປັນ HTTPS ໃນລະບົບຈິງ)</li>
+    </ol>
+  </section>
+
+  <section id="auth" class="plain">
+    <h2>ການຢືນຢັນຕົວຕົນ</h2>
+    <p>ລະບົບມີ credential ສອງລະດັບທີ່ບໍ່ກ່ຽວຂ້ອງກັນ ໃຊ້ຄົນລະໜ້າທີ່ກັນຢ່າງຈະແຈ້ງ:</p>
+    <table>
+      <tr><th>Credential</th><th>ໃຊ້ເຮັດຫຍັງ</th><th>ສົ່ງແບບໃດ</th></tr>
+      <tr>
+        <td><b>Shop JWT</b></td>
+        <td>ຕັ້ງຄ່າໂປຣໄຟລ໌ຮ້ານ / webhook ເທົ່ານັ້ນ</td>
+        <td><code>Authorization: Bearer &lt;token&gt;</code></td>
+      </tr>
+      <tr>
+        <td><b>X-Device-Id</b></td>
+        <td>ສັ່ງເປີດໜ້າສະແກນຈ່າຍເງິນ (<code>POST /palm/payment-intents</code> ເທົ່ານັ້ນ)</td>
+        <td>Header <code>X-Device-Id: &lt;deviceId&gt;</code></td>
+      </tr>
+    </table>
+    <div class="callout warn">
+      <b>⚠️ X-Device-Id ບໍ່ແມ່ນ secret</b>
+      <p>
+        <code>deviceId</code> ເປັນຄ່າທີ່ສ້າງຢູ່ຝ່າຍເຄື່ອງ terminal ເອງ ບໍ່ໄດ້ຖືກເກັບເປັນຄວາມລັບ ແລະ
+        ບໍ່ມີການກວດລະຫັດຜ່ານໃດໆເພີ່ມ — ຜູ້ໃດກໍ່ຕາມທີ່ຮູ້ຄ່ານີ້ ສາມາດສັ່ງເປີດໜ້າສະແກນຂອງເຄື່ອງນັ້ນ
+        ດ້ວຍຈຳນວນເງິນທີ່ກຳນົດເອງໄດ້ (ເປັນການລົບກວນ ບໍ່ແມ່ນການຂະໂມຍເງິນ ເພາະການຕັດເງິນຈິງຍັງຕ້ອງຜ່ານ
+        ການສະແກນຝ່າມື + consent ຂອງລູກຄ້າຢູ່ເຄື່ອງສະເໝີ) ໃຊ້ສະເພາະໃນລະບົບ POS ທີ່ເຊື່ອຖືໄດ້ ແລະ ເກັບ
+        ຄ່ານີ້ຄືກັບຂໍ້ມູນພາຍໃນ ບໍ່ເຜີຍແຜ່ສູ່ສາທາລະນະ
+      </p>
+    </div>
+    <p>
+      ທາງເລືອກທີ່ປອດໄພກວ່າຄືໃຊ້ <code>X-Terminal-Key</code> (ຄີຍ໌ເຕັມຂອງເຄື່ອງ ເກັບເປັນຄວາມລັບແທ້
+      ຄັດລອກໄດ້ຈາກໜ້າ About ຂອງແອັບ shop-terminal ເຊັ່ນກັນ) — ຖ້າ POS ສາມາດເກັບຄວາມລັບໄດ້ຢ່າງ
+      ປອດໄພ ແນະນຳໃຫ້ໃຊ້ອັນນີ້ແທນ <code>X-Device-Id</code>
+    </p>
+  </section>
+
+  <hr class="rule">
+
+  <section id="step-webhook" class="block">
+    <div class="route-head">
+      <span class="pill post">POST</span>
+      <span class="route-path">/api/v1/shops/login</span>
+      <span class="auth-badge">ບໍ່ຕ້ອງຢືນຢັນຕົວຕົນ</span>
+    </div>
+    <p class="route-desc">ເຂົ້າສູ່ລະບົບຮ້ານເພື່ອຂໍ Shop JWT — ໃຊ້ຄັ້ງດຽວຕອນຕັ້ງຄ່າ (ບໍ່ຕ້ອງເອີ້ນຊ້ຳທຸກຄັ້ງທີ່ຈ່າຍເງິນ)</p>
+
+<pre>curl -X POST https://bio-payment-api.phajay.co/api/v1/shops/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "phoneNumber": "+8562011112222",
+    "password": "••••••••"
+  }'</pre>
+
+<pre><span class="c1">// 200 OK</span>
+{
+  <span class="key">"success"</span>: <span class="num">true</span>,
+  <span class="key">"data"</span>: {
+    <span class="key">"token"</span>: <span class="str">"eyJhbGciOi..."</span>,
+    <span class="key">"expiresIn"</span>: <span class="num">604800</span>,
+    <span class="key">"shop"</span>: {
+      <span class="key">"shopId"</span>: <span class="str">"SHOP-99f0a6432153d8e8"</span>,
+      <span class="key">"name"</span>: <span class="str">"Lex Shop"</span>,
+      <span class="key">"webhookUrl"</span>: <span class="num">null</span>,
+      <span class="key">"callbackUrl"</span>: <span class="num">null</span>
+    }
+  }
+}</pre>
+
+    <h3>ຕັ້ງຄ່າ webhookUrl / callbackUrl</h3>
+    <div class="route-head">
+      <span class="pill patch">PATCH</span>
+      <span class="route-path">/api/v1/shops/me</span>
+      <span class="auth-badge">Shop JWT</span>
+    </div>
+    <p class="route-desc">
+      <code>webhookUrl</code> ຄືປາຍທາງທີ່ bio-payment-api ຈະຍິງ callback ການຈ່າຍເງິນສຳເລັດໄປໃຫ້
+      ສ່ວນ <code>callbackUrl</code> ຄື URL ຂອງຝ່າຍ POS ເອງ (ເຊັ່ນ ໜ້າ “ຂອບໃຈທີ່ໃຊ້ບໍລິການ”) — ລະບົບບໍ່ໄດ້
+      ໃຊ້ຄ່ານີ້ເຮັດຫຍັງເລີຍ ພຽງແຕ່ແນບໄປກັບທຸກ webhook payload ເພື່ອໃຫ້ POS ຮູ້ວ່າຈະ redirect ລູກຄ້າໄປ
+      ບ່ອນໃດຕໍ່
+    </p>
+
+<pre>curl -X PATCH https://bio-payment-api.phajay.co/api/v1/shops/me \
+  -H "Authorization: Bearer eyJhbGciOi..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "webhookUrl": "https://pos.example.com/webhooks/bio-payment",
+    "callbackUrl": "https://pos.example.com/checkout/thank-you"
+  }'</pre>
+
+<pre><span class="c1">// 200 OK — webhookSecret ຖືກສ້າງໃຫ້ອັດຕະໂນມັດ "ເທື່ອທຳອິດ" ທີ່ຕັ້ງ webhookUrl ເທົ່ານັ້ນ</span>
+{
+  <span class="key">"success"</span>: <span class="num">true</span>,
+  <span class="key">"data"</span>: {
+    <span class="key">"shopId"</span>: <span class="str">"SHOP-99f0a6432153d8e8"</span>,
+    <span class="key">"webhookUrl"</span>: <span class="str">"https://pos.example.com/webhooks/bio-payment"</span>,
+    <span class="key">"callbackUrl"</span>: <span class="str">"https://pos.example.com/checkout/thank-you"</span>,
+    <span class="key">"webhookSecret"</span>: <span class="str">"8f3c1a0e7b2d4f69a1c0e5b8d2f47a6c9e0b3d5f8a1c4e7b0d3f6a9c2e5b8d1f"</span>
+  }
+}</pre>
+
+    <div class="callout danger">
+      <b>🔑 ເກັບ webhookSecret ໄວ້ຢ່າງປອດໄພ</b>
+      <p>
+        ໃຊ້ເຊັນລາຍເຊັນກວດສອບ webhook ທຸກສະບັບທີ່ສົ່ງມາ (ເບິ່ງຂັ້ນຕອນທີ 3) — ເອີ້ນ
+        <code>GET /api/v1/shops/me</code> (ດ້ວຍ Shop JWT) ຊ້ຳໄດ້ຕະຫຼອດຖ້າເຮັດເສຍ ຄ່າຈະບໍ່ປ່ຽນຈົນກວ່າຈະ
+        ລຶບ <code>webhookUrl</code> ອອກແລ້ວຕັ້ງໃໝ່
+      </p>
+    </div>
+  </section>
+
+  <section id="step-intent" class="block">
+    <div class="route-head">
+      <span class="pill post">POST</span>
+      <span class="route-path">/api/v1/palm/payment-intents</span>
+      <span class="auth-badge">X-Device-Id ຫຼື X-Terminal-Key</span>
+    </div>
+    <p class="route-desc">
+      ກຳນົດຈຳນວນເງິນທີ່ຈະເກັບ ແລ້ວສັ່ງໃຫ້ເຄື່ອງ terminal ຂອງຮ້ານເປີດໜ້າສະແກນຈ່າຍເງິນຂຶ້ນມາເອງ
+      (ຜ່ານ realtime push ໄປທີ່ເຄື່ອງນັ້ນໂດຍກົງ)
+    </p>
+
+    <h3>Request</h3>
+    <table>
+      <tr><th>Field</th><th>ຊະນິດ</th><th>ຄຳອະທິບາຍ</th></tr>
+      <tr><td><code>amount</code></td><td>integer</td><td>ຈຳນວນເງິນ ໜ່ວຍຍ່ອຍ (minor units) ເຊັ່ນ 50000 = 50,000 ກີບ</td></tr>
+      <tr><td><code>currency</code></td><td>string</td><td>ລະຫັດສະກຸນເງິນ ISO-4217 3 ໂຕອັກສອນ ເຊັ່ນ <code>LAK</code></td></tr>
+      <tr><td><code>orderNo</code></td><td>string</td><td>
+        ເລກທີ່ອໍເດີຂອງຝ່າຍ POS ເອງ (8–100 ໂຕອັກສອນ: a-z, A-Z, 0-9, <code>. _ : # -</code>)
+        — ໃຊ້ເປັນ idempotency key ນຳ ເບິ່ງລາຍລະອຽດລຸ່ມນີ້
+      </td></tr>
+    </table>
+
+<pre>curl -X POST https://bio-payment-api.phajay.co/api/v1/palm/payment-intents \
+  -H "X-Device-Id: 9bea1a83-3788-41ea-9c58-4dfce2db5d11" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": 50000,
+    "currency": "LAK",
+    "orderNo": "POS-ORDER-00048213"
+  }'</pre>
+
+    <h3>Response — 201 Created</h3>
+<pre>{
+  <span class="key">"success"</span>: <span class="num">true</span>,
+  <span class="key">"data"</span>: {
+    <span class="key">"intentId"</span>: <span class="str">"66f1c2a9e4b0a1234567890a"</span>,
+    <span class="key">"expiresInSeconds"</span>: <span class="num">300</span>
+  }
+}</pre>
+
+    <div class="callout info">
+      <b>↻ ສົ່ງ orderNo ຊ້ຳໄດ້ — ປອດໄພສຳລັບການ retry</b>
+      <p>
+        ຖ້າເນັດຂາດກາງທາງ ແລະ POS ບໍ່ແນ່ໃຈວ່າຄຳຂໍກ່ອນໜ້ານັ້ນສຳເລັດຫຼືບໍ່ ສາມາດຍິງຊ້ຳດ້ວຍ
+        <code>orderNo</code> ເກົ່າໄດ້ທັນທີ — ຖ້າລາຍການເກົ່າຍັງບໍ່ຈົບ (ລໍສະແກນ/ກຳລັງສະແກນຢູ່) ລະບົບຈະ
+        ສົ່ງ <code>intentId</code> ເກົ່າກັບຄືນມາ (<code>"replayed": true</code>) ແລະ ເປີດໜ້າສະແກນຊ້ຳໃຫ້
+        ອີກຄັ້ງ ແທນການສ້າງລາຍການໃໝ່ຊ້ອນກັນ ແຕ່ຖ້າລາຍການເກົ່າຈົບໄປແລ້ວ (ຈ່າຍສຳເລັດ/ຖືກຍົກເລີກໄປແລ້ວ)
+        ການສົ່ງ <code>orderNo</code> ເກົ່າຊ້ຳຈະໄດ້ error <code>409 ORDER_NO_ALREADY_USED</code> ແທນ
+        — ອໍເດີໃໝ່ຕ້ອງໃຊ້ <code>orderNo</code> ໃໝ່ສະເໝີ
+      </p>
+    </div>
+
+    <p>
+      intent ຈະໝົດອາຍຸໃນ <code>expiresInSeconds</code> (ປົກກະຕິ 5 ນາທີ) ຖ້າບໍ່ມີໃຜສະແກນພາຍໃນ
+      ເວລານີ້ ລາຍການຈະຖືກຍົກເລີກອັດຕະໂນມັດ ແລະ ຈະບໍ່ມີ webhook ໃດໆສົ່ງມາ — ຝ່າຍ POS ຄວນມີ timeout
+      ຂອງຕົນເອງທີ່ໃກ້ຄຽງກັນ ແລ້ວຖືວ່າລາຍການນັ້ນ "ບໍ່ສຳເລັດ" ຫາກບໍ່ໄດ້ຮັບ webhook ພາຍໃນເວລາທີ່ກຳນົດ
+    </p>
+  </section>
+
+  <section id="step-callback" class="block">
+    <div class="route-head">
+      <span class="pill post">POST</span>
+      <span class="route-path">&lt;webhookUrl ທີ່ຕັ້ງໄວ້&gt;</span>
+      <span class="auth-badge">ຍິງມາຈາກ bio-payment-api</span>
+    </div>
+    <p class="route-desc">
+      ເມື່ອລູກຄ້າສະແກນຝ່າມື ແລະ ຕັດເງິນສຳເລັດ ລະບົບຈະ <code>POST</code> ໄປທີ່ <code>webhookUrl</code>
+      ທີ່ຕັ້ງໄວ້ແບບ <strong>fire-and-forget</strong> — ຍິງຄັ້ງດຽວ ບໍ່ມີການ retry ຫາກປາຍທາງລົ້ມ ຫຼື
+      ຕອບຊ້າ ແລະ ການສົ່ງ webhook ບໍ່ກະທົບຜົນການຕັດເງິນທີ່ເຄື່ອງ terminal ແຕ່ຢ່າງໃດ (ເງິນຖືກຕັດໄປແລ້ວ
+      ບໍ່ວ່າ webhook ຈະສົ່ງສຳເລັດຫຼືບໍ່)
+    </p>
+
+    <h3>Headers</h3>
+    <table>
+      <tr><th>Header</th><th>ຄຳອະທິບາຍ</th></tr>
+      <tr><td><code>X-Webhook-Event</code></td><td>ຊື່ event ສະເໝີຄື <code>palm_payment.succeeded</code></td></tr>
+      <tr><td><code>X-Webhook-Signature</code></td><td>HMAC-SHA256 hex digest ຂອງ raw body ທັງກ້ອນ ເຊັນດ້ວຍ <code>webhookSecret</code></td></tr>
+    </table>
+
+    <h3>Payload</h3>
+<pre>{
+  <span class="key">"event"</span>: <span class="str">"palm_payment.succeeded"</span>,
+  <span class="key">"shopId"</span>: <span class="str">"SHOP-99f0a6432153d8e8"</span>,
+  <span class="key">"callbackUrl"</span>: <span class="str">"https://pos.example.com/checkout/thank-you"</span>,
+  <span class="key">"transactionId"</span>: <span class="str">"66f1c2a9e4b0a1234567890a"</span>,
+  <span class="key">"orderNo"</span>: <span class="str">"POS-ORDER-00048213"</span>,
+  <span class="key">"referenceId"</span>: <span class="str">"f3a2c1e0-9b8d-4e7f-a1c0-5b8d2f47a6c9"</span>,
+  <span class="key">"amount"</span>: <span class="num">50000</span>,
+  <span class="key">"currency"</span>: <span class="str">"LAK"</span>,
+  <span class="key">"terminalId"</span>: <span class="str">"TERM-7a3f91c2e8b0"</span>,
+  <span class="key">"customerId"</span>: <span class="str">"66e0b1f8a2c3d4e5f6a7b8c9"</span>,
+  <span class="key">"balanceAfter"</span>: <span class="num">430000</span>,
+  <span class="key">"paidAt"</span>: <span class="str">"2026-10-01T03:42:11.502Z"</span>
+}</pre>
+
+    <table>
+      <tr><th>Field</th><th>ຄຳອະທິບາຍ</th></tr>
+      <tr><td><code>callbackUrl</code></td><td>ຄ່າທີ່ຕັ້ງໄວ້ໃນ <code>PATCH /shops/me</code> — ໃຊ້ຕັດສິນໃຈວ່າຈະ redirect ລູກຄ້າໄປບ່ອນໃດ</td></tr>
+      <tr><td><code>orderNo</code></td><td>ຄ່າດຽວກັບທີ່ POS ສົ່ງໄປຕອນສ້າງ payment intent</td></tr>
+      <tr><td><code>amount</code> / <code>currency</code></td><td>ຍອດທີ່ຕັດຈິງ — ກົງກັບທີ່ສົ່ງໄປຕອນສ້າງ intent ສະເໝີ (ເຄື່ອງປ່ຽນຍອດບໍ່ໄດ້ຫຼັງສ້າງແລ້ວ)</td></tr>
+      <tr><td><code>balanceAfter</code></td><td>ຍອດເງິນຄົງເຫຼືອໃນ wallet ລູກຄ້າຫຼັງຕັດເງິນ (ໜ່ວຍຍ່ອຍດຽວກັບ <code>amount</code>)</td></tr>
+    </table>
+
+    <h3>ກວດສອບລາຍເຊັນ (Node.js)</h3>
+<pre><span class="c1">import crypto from 'node:crypto';
+import express from 'express';
+
+const app = express();
+app.use(express.raw({ type: 'application/json' })); // ຕ້ອງໄດ້ raw bytes ໄປເຊັນ ບໍ່ແມ່ນ object ທີ່ parse ແລ້ວ
+
+app.post('/webhooks/bio-payment', (req, res) => {</span>
+  <span class="key">const</span> signature = req.headers[<span class="str">'x-webhook-signature'</span>];
+  <span class="key">const</span> expected = crypto
+    .createHmac(<span class="str">'sha256'</span>, WEBHOOK_SECRET)
+    .update(req.body) <span class="c1">// req.body ຄື Buffer ດິບ</span>
+    .digest(<span class="str">'hex'</span>);
+
+  <span class="key">if</span> (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    <span class="key">return</span> res.status(401).send(<span class="str">'invalid signature'</span>);
+  }
+
+  <span class="key">const</span> payload = JSON.parse(req.body);
+  <span class="c1">// ... ບັນທຶກຜົນການຈ່າຍເງິນຂອງ orderNo ນີ້ ແລ້ວຕອບ 200 ກັບໄປ</span>
+  res.status(200).send(<span class="str">'ok'</span>);
+});</pre>
+
+    <div class="callout warn">
+      <b>ເຊັນຈາກ raw bytes ສະເໝີ ບໍ່ແມ່ນຈາກ object ທີ່ parse ແລ້ວ</b>
+      <p>
+        ຕ້ອງຄຳນວນ HMAC ຈາກໂຕ body ດິບທີ່ໄດ້ຮັບມາກົງໆ (byte ຕໍ່ byte) ບໍ່ແມ່ນຈາກ
+        <code>JSON.stringify(parsedObject)</code> ເພາະລຳດັບ field ຫຼື ຊ່ອງວ່າງທີ່ຕ່າງກັນພຽງເລັກນ້ອຍ
+        ຈະເຮັດໃຫ້ລາຍເຊັນບໍ່ກົງກັນທັນທີ
+      </p>
+    </div>
+  </section>
+
+  <section id="errors" class="plain">
+    <h2>ລະຫັດຂໍ້ຜິດພາດທີ່ພົບໄດ້</h2>
+    <table>
+      <tr><th>HTTP</th><th>code</th><th>ຄວາມໝາຍ</th></tr>
+      <tr><td>400</td><td><code>VALIDATION_ERROR</code></td><td>ຮູບແບບ request ບໍ່ຖືກຕ້ອງ (ເຊັ່ນ orderNo ສັ້ນເກີນໄປ, amount ບໍ່ແມ່ນຈຳນວນເຕັມບວກ)</td></tr>
+      <tr><td>401</td><td><code>TERMINAL_KEY_INVALID</code></td><td>ບໍ່ພົບ <code>X-Device-Id</code> ຫຼື <code>X-Terminal-Key</code> ທີ່ຖືກຕ້ອງໃນຄຳຂໍ</td></tr>
+      <tr><td>403</td><td><code>TERMINAL_NOT_ACTIVE</code></td><td>ເຄື່ອງ terminal ນີ້ຖືກປິດນຳໃຊ້/ເພີກຖອນແລ້ວ</td></tr>
+      <tr><td>403</td><td><code>SHOP_INACTIVE</code></td><td>ຮ້ານນີ້ຖືກລະງັບການຮັບຊຳລະເງິນ</td></tr>
+      <tr><td>409</td><td><code>ORDER_NO_ALREADY_USED</code></td><td><code>orderNo</code> ນີ້ເຄີຍໃຊ້ໄປແລ້ວກັບລາຍການທີ່ຈົບໄປແລ້ວ (ສຳເລັດ/ຖືກຍົກເລີກ) — ຕ້ອງໃຊ້ຄ່າໃໝ່</td></tr>
+      <tr><td>429</td><td><code>PALM_PAYMENT_INTENT_RATE_LIMITED</code></td><td>ຍິງຖີ່ເກີນໄປຈາກເຄື່ອງ/ຄີຍ໌ດຽວກັນ (60 ຄັ້ງ/ນາທີ)</td></tr>
+    </table>
+    <p>ທຸກ response ທີ່ບໍ່ສຳເລັດມີຮູບແບບດຽວກັນ:</p>
+<pre>{
+  <span class="key">"success"</span>: <span class="num">false</span>,
+  <span class="key">"error"</span>: {
+    <span class="key">"code"</span>: <span class="str">"ORDER_NO_ALREADY_USED"</span>,
+    <span class="key">"message"</span>: <span class="str">"This orderNo was already used for a completed or cancelled payment. Use a new orderNo for a new attempt."</span>,
+    <span class="key">"details"</span>: { <span class="key">"transactionId"</span>: <span class="str">"..."</span>, <span class="key">"status"</span>: <span class="str">"SUCCESS"</span> }
+  }
+}</pre>
+  </section>
+
+  <section id="notes" class="plain">
+    <h2>ຂໍ້ຄວນຮູ້ / FAQ</h2>
+    <h3>ບໍ່ໄດ້ຮັບ webhook ເລີຍ ຕ້ອງເຮັດແນວໃດ?</h3>
+    <p>
+      ເນື່ອງຈາກການສົ່ງ webhook ເປັນແບບ fire-and-forget ບໍ່ມີການ retry ຫາກປາຍທາງ POS ລົ້ມຊົ່ວຄາວໃນ
+      ຈັງຫວະນັ້ນພໍດີ webhook ສະບັບນັ້ນຈະຫາຍໄປເລີຍ — ແນະນຳໃຫ້ຝ່າຍ POS ກວດສອບປາຍທາງຂອງຕົນເອງໃຫ້ພ້ອມ
+      ຮັບຕະຫຼອດເວລາ (uptime ສູງ, ຕອບ <code>200</code> ໄວ ແລ້ວຄ່ອຍປະມວນຜົນຕໍ່ແບບ async)
+    </p>
+    <h3>intent ໝົດອາຍຸຈັກນາທີ?</h3>
+    <p>5 ນາທີນັບຈາກສ້າງ (ເບິ່ງຄ່າຈິງຈາກ <code>expiresInSeconds</code> ໃນທຸກ response ບໍ່ຄວນ hardcode)</p>
+    <h3>ຍິງສອງເທື່ອຕິດກັນດ້ວຍ orderNo ຄົນລະຄ່າກັນຈະເກີດຫຍັງຂຶ້ນ?</h3>
+    <p>
+      ລາຍການກ່ອນໜ້ານີ້ທີ່ຍັງບໍ່ມີໃຜສະແກນ (status ຍັງ PENDING) ຈະຖືກຍົກເລີກອັດຕະໂນມັດ ແລ້ວເປີດໜ້າ
+      ສະແກນໃຫ້ລາຍການໃໝ່ແທນ — ເຄື່ອງ terminal ສະແດງໄດ້ເທື່ອລະໜ້າຈໍດຽວເທົ່ານັ້ນ ລາຍການທີ່ກຳລັງຖືກສະແກນ
+      ຢູ່ແລ້ວ (PROCESSING) ຈະບໍ່ຖືກຍົກເລີກ ບໍ່ວ່າຈະຍິງ orderNo ໃໝ່ເຂົ້າມາຈັກເທື່ອກໍ່ຕາມ
+    </p>
+  </section>
+
+  <footer>Bio Payment API · ເອກະສານເຊື່ອມຕໍ່ POS</footer>
+
+</main>
+</div>
+</body>
+</html>

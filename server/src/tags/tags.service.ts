@@ -126,6 +126,19 @@ export class TagsService {
       .exec();
   }
 
+  async findExistingTagIds(tagIds: string[]) {
+    const cleanTagIds = Array.from(new Set(tagIds.map((tagId) => String(tagId).trim()).filter(Boolean)));
+    if (cleanTagIds.length === 0) return [];
+    const rows = await this.tagModel
+      .find({ tagId: { $in: cleanTagIds } })
+      .lean()
+      .exec();
+    return rows.map((tag) => ({
+      tagId: String(tag.tagId),
+      productId: String(tag.productId),
+    }));
+  }
+
   private async handleCheck(tagIds: string[]) {
     const tags = await this.tagModel
       .find({ tagId: { $in: tagIds } })
@@ -145,10 +158,7 @@ export class TagsService {
   private async handleCheckout(tagIds: string[]) {
     // 1. Find all 'available' tags from the list
     const tags = await this.tagModel
-      .find({
-        tagId: { $in: tagIds },
-        status: TagStatus.AVAILABLE,
-      })
+      .find({ tagId: { $in: tagIds } })
       .populate<{ productId: Product | null }>('productId')
       .exec();
 
@@ -206,7 +216,7 @@ export class TagsService {
 
   async getInventorySummary() {
     const tags = await this.tagModel
-      .find({ status: TagStatus.AVAILABLE })
+      .find({})
       .populate<{ productId: Product | null }>('productId')
       .exec();
     const summary = new Map<

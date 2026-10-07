@@ -3,6 +3,7 @@ import { Document } from 'mongoose';
 
 export enum PaymentProvider {
   PHAJAY = 'phajay',
+  BIO = 'bio',
 }
 
 export enum PaymentStatus {
@@ -55,6 +56,12 @@ export class PaymentTransaction extends Document {
 
   @Prop()
   providerTransactionId?: string;
+
+  @Prop()
+  providerIntentId?: string;
+
+  @Prop()
+  expiresAt?: Date;
 
   @Prop()
   paymentMethod?: string;

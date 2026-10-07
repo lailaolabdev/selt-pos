@@ -4,6 +4,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { PrintQueue } = require('./queue.cjs');
 const { receiptHtml } = require('./receipt.cjs');
+const { printRaster } = require('./raw-printer.cjs');
 const apiUrl = (process.env.POS_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 let mainWindow, paymentWindow, server, queue, origin;
 const idPattern = /^[a-f0-9]{24}$/i;
@@ -45,6 +46,25 @@ async function prepare(receipt, settings, reprint = false) {
 }
 async function printHtml(html, settings) {
   if (settings.adapter === 'mock') return 'mock';
+  if (settings.adapter === 'raw') {
+    const win = new BrowserWindow({ show: false, width: 576, height: 4000, webPreferences: securePrefs });
+    try {
+      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+      await win.webContents.executeJavaScript('document.fonts.ready');
+      await win.webContents.setZoomFactor(1.9);
+      const height = await win.webContents.executeJavaScript('Math.max(1, Math.ceil(document.body.scrollHeight))');
+      const image = await win.webContents.capturePage({ x: 0, y: 0, width: 576, height: Math.min(height, 4000) });
+      const size = image.getSize();
+      await printRaster({
+        bitmap: image.getBitmap(),
+        width: size.width,
+        height: size.height,
+        portPath: process.env.POS_PRINTER_PORT || 'COM1',
+        baudRate: Number(process.env.POS_PRINTER_BAUD || 9600),
+      });
+      return 'submitted';
+    } finally { win.destroy(); }
+  }
   const win = new BrowserWindow({ show: false, webPreferences: securePrefs });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
@@ -77,10 +97,14 @@ async function createWindow() {
     }, print: printHtml,
   };
   queue = new PrintQueue(path.join(app.getPath('userData'), 'print-queue.json'), printer);
-  handle('printer:list', async () => (await mainWindow.webContents.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: p.isDefault, status: p.status })));
+  handle('printer:list', async () => {
+    const printers = (await mainWindow.webContents.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: p.isDefault, status: p.status }));
+    if (process.env.POS_PRINTER_PORT || process.platform === 'win32') printers.unshift({ name: 'COM1', displayName: 'POS-80 USB · COM1 · 9600 RTS', isDefault: false, status: 0 });
+    return printers;
+  });
   handle('printer:state', () => ({ settings: queue.state.settings, jobs: queue.state.jobs.slice(-100).reverse() }));
   handle('printer:configure', settings => queue.serial(async () => {
-    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
+    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'raw', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
     if (settings.adapter === 'system' && !(await mainWindow.webContents.getPrintersAsync()).some(p => p.name === settings.deviceName)) throw new Error('Unknown printer');
     queue.state.settings = { deviceName: settings.deviceName, paperWidth: settings.paperWidth, adapter: settings.adapter }; queue.save(); return queue.state.settings;
   }));

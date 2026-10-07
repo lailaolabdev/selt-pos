@@ -8,21 +8,22 @@ import { api } from '@/lib/api';
 import { useDeviceSession } from '@/hooks/useDeviceSession';
 import { socket } from '@/lib/socket';
 import { playPosClick, playPosSound, playPosSounds, stopPosSound } from '@/lib/tts';
-import { ShoppingCart, Trash2, CheckCircle, CreditCard, Loader2, ScanLine, ShieldCheck, ArrowRight, RotateCcw, ShoppingBasket, Package, XCircle, Landmark, Fingerprint, Wallet } from 'lucide-react';
+import { ShoppingCart, Trash2, CheckCircle, CreditCard, Loader2, ScanLine, ShieldCheck, ArrowRight, RotateCcw, ShoppingBasket, Package, XCircle, Landmark, Fingerprint, Wallet, Plus, Hand } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 
 const PAYMENT_STORAGE_KEY = 'pos-active-payment-v1';
+const DEV_MODE = import.meta.env.VITE_ENV === 'dev';
 
 const PAYMENT_BANKS = [
-    { id: 'bcel', name: 'BCEL One', detail: 'BCEL', logo: 'https://payment-doc.phajay.co/images/BCEL.png' },
     { id: 'jdb', name: 'JDB', detail: 'Joint Development Bank', logo: 'https://payment-doc.phajay.co/images/JDB.png' },
+    { id: 'bcel', name: 'BCEL One', detail: 'BCEL', logo: 'https://payment-doc.phajay.co/images/BCEL.png' },
     { id: 'ldb', name: 'LDB', detail: 'Lao Development Bank', logo: 'https://payment-doc.phajay.co/images/LDB.png' },
     { id: 'ib', name: 'IB', detail: 'Indochina Bank', logo: 'https://payment-doc.phajay.co/images/indochina.png' },
     { id: 'stb', name: 'STB', detail: 'ST Bank', logo: 'https://payment-doc.phajay.co/images/st-bank.png' },
     { id: 'm-money', name: 'M MoneyX', detail: 'Mobile Wallet', logo: 'https://payment-doc.phajay.co/images/m-money-x-logo.png' },
 ] as const;
 type BankId = typeof PAYMENT_BANKS[number]['id'];
-type PaymentStage = 'METHOD' | 'BANK' | 'QR';
+type PaymentStage = 'METHOD' | 'BANK' | 'BIO' | 'QR';
 
 type PaymentStatus = 'WAITING' | 'PAID' | 'FAILED' | 'CANCELLED';
 
@@ -35,10 +36,13 @@ interface PhaJayPayment {
     qrCode?: string;
     link?: string;
     redirectURL?: string;
+    provider?: 'phajay' | 'bio';
+    intentId?: string;
+    expiresInSeconds?: number;
 }
 
 export const POSPage = () => {
-    const { items, totalPrice, tagIds, deviceId, clearCart, scannerStatus, basketId, basketKey, scannedTagIds, unknownTagIds, unavailableTagIds } = useCartStore();
+    const { items, totalPrice, deviceId, clearCart, scannerStatus, scannedTagIds, unknownTagIds, unavailableTagIds } = useCartStore();
     const [isProcessing, setIsProcessing] = useState(false);
     const [payment, setPayment] = useState<PhaJayPayment | null>(() => {
         try {
@@ -49,14 +53,17 @@ export const POSPage = () => {
         } catch { return null; }
     });
     const [showQR, setShowQR] = useState(Boolean(payment));
-    const [paymentStage, setPaymentStage] = useState<PaymentStage>(payment ? 'QR' : 'METHOD');
-    const [selectedBank, setSelectedBank] = useState<BankId>('bcel');
+    const [paymentStage, setPaymentStage] = useState<PaymentStage>(payment?.provider === 'bio' ? 'BIO' : payment ? 'QR' : 'METHOD');
+    const [selectedBank, setSelectedBank] = useState<BankId>('jdb');
     const activePaymentRef = useRef(payment);
     const handledPaymentsRef = useRef(new Set<string>());
     const [printMessage, setPrintMessage] = useState('');
     const [paymentError, setPaymentError] = useState('');
-    const lastSpokenScanKeyRef = useRef('');
-    const lastWelcomedBasketRef = useRef('');
+    const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+    const [devProducts, setDevProducts] = useState<{ _id: string; name: string; basePrice: number }[]>([]);
+    const [devProductLoading, setDevProductLoading] = useState(false);
+    const lastObservedTagsRef = useRef<string[]>([]);
+    const readySoundPlayedRef = useRef(false);
     const itemCount = items.reduce((acc, item) => acc + item.count, 0);
     const hasItems = items.length > 0;
     const isScanning = scannerStatus === 'SCANNING';
@@ -64,12 +71,30 @@ export const POSPage = () => {
         useCartStore.getState().updateCart({ ...data.result, scannedTagIds: data.tagIds || data.result?.scannedTagIds, status: data.status });
     });
     const isReadyToPay = rfid.ready && hasItems && scannerStatus === 'STABLE';
-    const scanKey = tagIds.join('|');
+    const scannedKey = scannedTagIds.join('|');
+
+    useEffect(() => {
+        if (!DEV_MODE) return;
+        void api.get('/products').then(response => setDevProducts(response.data)).catch(error => console.error('Could not load dev products', error));
+    }, []);
+
+    const simulateDevProduct = async (productId: string) => {
+        if (devProductLoading || !rfid.ready) return;
+        setDevProductLoading(true);
+        try {
+            await api.post('/tags/dev/capture-product', { deviceId, productId });
+        } catch (error) {
+            setPaymentError((isAxiosError(error) ? error.response?.data?.message : undefined) || 'ບໍ່ສາມາດເພີ່ມສິນຄ້າຈຳລອງໄດ້');
+        } finally {
+            setDevProductLoading(false);
+        }
+    };
 
     const finishPaidPayment = useCallback(async (paid: PhaJayPayment) => {
         if (activePaymentRef.current?.paymentId !== paid.paymentId || handledPaymentsRef.current.has(paid.paymentId)) return;
         handledPaymentsRef.current.add(paid.paymentId);
         playPosSounds(['/sound/sound_success.mp3', '/sound/success_payment.wav']);
+        setShowPaymentSuccess(true);
         clearCart();
         setShowQR(false);
         setPaymentError('');
@@ -88,6 +113,12 @@ export const POSPage = () => {
             setPrintMessage(`${printerText.paid} — ${printerText.error}`);
         }
     }, [clearCart]);
+
+    useEffect(() => {
+        if (!showPaymentSuccess) return;
+        const timer = window.setTimeout(() => setShowPaymentSuccess(false), 2500);
+        return () => window.clearTimeout(timer);
+    }, [showPaymentSuccess]);
 
     const finishFailedPayment = () => {
         localStorage.removeItem(PAYMENT_STORAGE_KEY);
@@ -121,28 +152,28 @@ export const POSPage = () => {
     useEffect(() => () => stopPosSound(), []);
 
     useEffect(() => {
-        const welcomeKey = basketKey || scanKey || basketId;
-        if (hasItems && welcomeKey && welcomeKey !== lastWelcomedBasketRef.current) {
-            lastWelcomedBasketRef.current = welcomeKey;
-            playPosSound('/sound/1.wav');
-        }
+        const previous = lastObservedTagsRef.current;
+        const current = [...scannedTagIds].sort();
+        const previousKey = previous.join('|');
+        const currentKey = current.join('|');
+        if (previousKey === currentKey) return;
 
-        if (!basketId && !basketKey && !scanKey) {
-            lastSpokenScanKeyRef.current = '';
-            lastWelcomedBasketRef.current = '';
+        if (previous.length === 0 && current.length > 0) {
+            playPosSound('/sound/1.wav');
+        } else if (current.length > 0 || previous.length > 0) {
+            playPosSound('/sound/product-change.mp3');
         }
-    }, [basketId, basketKey, hasItems, scanKey]);
+        lastObservedTagsRef.current = current;
+    }, [scannedKey, scannedTagIds]);
 
     useEffect(() => {
-        if (!isReadyToPay || !scanKey || scanKey === lastSpokenScanKeyRef.current) {
-            return;
+        if (isReadyToPay && !readySoundPlayedRef.current) {
+            readySoundPlayedRef.current = true;
+            playPosSound('/sound/2.wav');
+        } else if (scannedTagIds.length === 0) {
+            readySoundPlayedRef.current = false;
         }
-
-        lastSpokenScanKeyRef.current = scanKey;
-
-        playPosSound('/sound/2.wav');
-
-    }, [isReadyToPay, scanKey, totalPrice]);
+    }, [isReadyToPay, scannedKey, scannedTagIds.length]);
 
     useEffect(() => {
         const handlePaymentUpdate = (nextPayment: PhaJayPayment & { deviceId?: string }) => {
@@ -202,6 +233,26 @@ export const POSPage = () => {
             console.error(error);
             setShowQR(true);
             setPaymentError((isAxiosError(error) ? error.response?.data?.message : undefined) || 'ບໍ່ສາມາດສ້າງ QR ຊຳລະເງິນໄດ້');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const createBioPayment = async () => {
+        if (activePaymentRef.current?.status === 'WAITING' || isProcessing) return;
+        setIsProcessing(true);
+        setPaymentError('');
+        try {
+            const response = await api.post('/payments/phajay/bio/intent', { deviceId }, { timeout: 20000 });
+            const nextPayment = response.data as PhaJayPayment;
+            if (!nextPayment.paymentId || !nextPayment.intentId) throw new Error('Bio Payment did not return intentId');
+            activePaymentRef.current = nextPayment;
+            localStorage.setItem(PAYMENT_STORAGE_KEY, JSON.stringify({ deviceId, payment: nextPayment }));
+            setPayment(nextPayment);
+            setPaymentStage('BIO');
+            setShowQR(true);
+        } catch (error: unknown) {
+            setPaymentError((isAxiosError(error) ? error.response?.data?.message : undefined) || 'ບໍ່ສາມາດເປີດການຈ່າຍຜ່ານ Bio Payment ໄດ້');
         } finally {
             setIsProcessing(false);
         }
@@ -282,6 +333,13 @@ export const POSPage = () => {
             </header>
 
             <main className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+                {DEV_MODE && <section className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 p-3" aria-label="ໂໝດຈຳລອງ dev">
+                    <div className="mb-2 flex items-center justify-between gap-3"><p className="text-xs font-black text-amber-800">DEV MODE · ບໍ່ມີ RFID Hub</p><span className="text-[11px] font-semibold text-amber-700">ກົດເພື່ອຈຳລອງການວາງສິນຄ້າ</span></div>
+                    <div className="flex flex-wrap gap-2">
+                        {devProducts.map(product => <button key={product._id} onClick={() => { playPosClick(); void simulateDevProduct(product._id); }} disabled={devProductLoading || !rfid.ready} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" />{product.name}</button>)}
+                        {devProducts.length === 0 && <span className="text-xs font-semibold text-amber-800">ຍັງບໍ່ມີສິນຄ້າໃນລະບົບ</span>}
+                    </div>
+                </section>}
                 <div className="grid shrink-0 grid-cols-3 gap-3" aria-label="ຂັ້ນຕອນຊຳລະ">
                     {steps.map((step, index) => (
                         <div key={step.title} className={cn("flex items-center gap-3 rounded-xl border px-3 py-3", index === currentStep ? "border-purple-300 bg-purple-50" : index < currentStep ? "border-green-200 bg-green-50" : "border-slate-200 bg-white")}>
@@ -378,8 +436,8 @@ export const POSPage = () => {
             </footer>
 
             {payment?.status === 'WAITING' && !showQR && (
-                <button onClick={() => { playPosClick(); setPaymentStage('QR'); setShowQR(true); }} className="fixed bottom-12 right-5 z-40 rounded-xl bg-[#7b2db5] px-5 py-3 font-bold text-white shadow-lg">
-                    ສະແດງ QR ຊຳລະເງິນ
+                <button onClick={() => { playPosClick(); setPaymentStage(payment.provider === 'bio' ? 'BIO' : 'QR'); setShowQR(true); }} className="fixed bottom-12 right-5 z-40 rounded-xl bg-[#7b2db5] px-5 py-3 font-bold text-white shadow-lg">
+                    {payment.provider === 'bio' ? 'ສະແດງໜ້າສະແກນຝ່າມື' : 'ສະແດງ QR ຊຳລະເງິນ'}
                 </button>
             )}
             {showQR && (
@@ -387,8 +445,8 @@ export const POSPage = () => {
                     <div role="dialog" aria-modal="true" aria-label="PhaJay Payment" className="flex w-full max-w-[860px] max-h-[calc(100dvh-32px)] flex-col overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
                         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
                             <div>
-                                <h3 className="text-xl font-black text-[#7b2db5]">{paymentStage === 'METHOD' ? 'ເລືອກວິທີຊຳລະເງິນ' : paymentStage === 'BANK' ? 'ເລືອກທະນາຄານ' : 'ສະແກນ QR ເພື່ອຊຳລະເງິນ'}</h3>
-                                <p className="mt-1 text-sm font-semibold text-slate-500">PhaJay · {paymentStage === 'QR' ? bankName : 'Online Payment'}</p>
+                                <h3 className="text-xl font-black text-[#7b2db5]">{paymentStage === 'METHOD' ? 'ເລືອກວິທີຊຳລະເງິນ' : paymentStage === 'BANK' ? 'ເລືອກທະນາຄານ' : paymentStage === 'BIO' ? 'ຊຳລະດ້ວຍຝ່າມື' : 'ສະແກນ QR ເພື່ອຊຳລະເງິນ'}</h3>
+                                <p className="mt-1 text-sm font-semibold text-slate-500">PhaJay · {paymentStage === 'BIO' ? 'BIO Payment' : paymentStage === 'QR' ? bankName : 'Online Payment'}</p>
                             </div>
                             <button autoFocus disabled={isProcessing} onClick={() => { playPosClick(); paymentStage === 'BANK' ? setPaymentStage('METHOD') : setShowQR(false); }} className="min-h-11 rounded-lg border border-slate-200 px-4 font-bold text-slate-600 hover:bg-slate-50">ກັບຄືນ</button>
                         </header>
@@ -398,10 +456,10 @@ export const POSPage = () => {
                                     ['METHOD', '1', 'ວິທີຈ່າຍ'],
                                     ['BANK', '2', 'ເລືອກທະນາຄານ'],
                                     ['QR', '3', 'ສະແກນ QR'],
-                                ].map(([stage, number, label]) => <div key={stage} className={cn('rounded-lg px-2 py-2 transition-colors', paymentStage === stage ? 'bg-purple-100 text-[#7b2db5]' : 'text-slate-400')}><span className="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white">{number}</span>{label}</div>)}
+                                ].map(([stage, number, label]) => <div key={stage} className={cn('rounded-lg px-2 py-2 transition-colors', ((paymentStage === 'BIO' && stage === 'QR') || paymentStage === stage) ? 'bg-purple-100 text-[#7b2db5]' : 'text-slate-400')}><span className="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white">{number}</span>{label}</div>)}
                             </div>
                             <p className="mt-2 text-center text-xs font-semibold text-slate-500">
-                                {paymentStage === 'METHOD' ? 'ເລືອກ Online Payment ເພື່ອເລີ່ມຈ່າຍ' : paymentStage === 'BANK' ? 'ເລືອກແອັບທະນາຄານ ແລ້ວກົດ ສ້າງ QR' : 'ເປີດແອັບທະນາຄານ ແລ້ວສະແກນ QR'}
+                                {paymentStage === 'METHOD' ? 'ເລືອກວິທີຈ່າຍເງິນ' : paymentStage === 'BANK' ? 'ເລືອກແອັບທະນາຄານ ແລ້ວກົດ ສ້າງ QR' : paymentStage === 'BIO' ? 'ເບິ່ງເຄື່ອງສະແກນ ແລະ ສະແກນຝ່າມືເພື່ອຢືນຢັນ' : 'ເປີດແອັບທະນາຄານ ແລ້ວສະແກນ QR'}
                             </p>
                         </div>
                         {paymentStage === 'METHOD' ? (
@@ -411,8 +469,8 @@ export const POSPage = () => {
                                     <button onClick={() => { playPosClick(); setPaymentStage('BANK'); }} className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border-2 border-purple-200 bg-purple-50 p-5 text-[#7b2db5] hover:border-purple-500 focus-visible:outline-2 focus-visible:outline-purple-600">
                                         <Wallet className="h-12 w-12" /><span className="text-xl font-black">Online Payment</span><span className="text-sm font-semibold">ເລືອກທະນາຄານ ແລະ ສະແກນ QR</span>
                                     </button>
-                                    <button disabled className="flex min-h-48 cursor-not-allowed flex-col items-center justify-center gap-3 rounded-2xl border-2 border-slate-200 bg-slate-50 p-5 text-slate-400">
-                                        <Fingerprint className="h-12 w-12" /><span className="text-xl font-black">PhaJay BIO Payment</span><span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold">Coming soon · ເປີດໃຊ້ພາຍຫຼັງ</span>
+                                    <button onClick={() => { playPosClick(); void createBioPayment(); }} disabled={isProcessing || !isReadyToPay} className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-5 text-emerald-700 hover:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">
+                                        <Fingerprint className="h-12 w-12" /><span className="text-xl font-black">PhaJay BIO Payment</span><span className="text-sm font-semibold">ສະແກນຝ່າມືທີ່ເຄື່ອງ Bio POS</span>
                                     </button>
                                 </div>
                             </div>
@@ -428,6 +486,25 @@ export const POSPage = () => {
                                 {paymentError && <p role="alert" className="max-h-20 overflow-y-auto rounded-lg bg-red-50 p-3 text-sm font-bold text-red-600">{paymentError}</p>}
                                 <button onClick={() => { if (!isProcessing && isReadyToPay) playPosClick(); void createQrPayment(); }} disabled={isProcessing || !isReadyToPay} className="flex min-h-14 w-full items-center justify-center gap-3 rounded-xl bg-emerald-600 px-5 font-black text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">{isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <ScanLine className="h-5 w-5" />}{isProcessing ? 'ກຳລັງສ້າງ QR...' : 'ສ້າງ QR'}</button>
                             </div>
+                        ) : paymentStage === 'BIO' ? (
+                        <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-6 p-6">
+                            <div className="bio-scan-stage relative flex min-h-[300px] items-center justify-center overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-5" aria-label="ຮູບຈຳລອງການສະແກນຝ່າມື">
+                                <div className="bio-terminal-pulse absolute right-7 top-1/2 flex h-32 w-24 -translate-y-1/2 flex-col items-center justify-center rounded-2xl border-4 border-emerald-500 bg-white text-emerald-600 shadow-lg">
+                                    <Fingerprint className="h-12 w-12" /><span className="mt-1 text-[10px] font-black tracking-widest">BIO POS</span>
+                                </div>
+                                <div className="absolute right-[78px] top-1/2 h-1 w-20 -translate-y-1/2 rounded-full bg-emerald-300/40"><div className="bio-scan-glow h-full w-full rounded-full bg-emerald-500 shadow-[0_0_12px_4px_rgb(16_185_129_/_0.45)]" /></div>
+                                <Hand className="bio-hand-tap absolute left-7 top-1/2 h-28 w-28 -translate-y-1/2 text-[#7b2db5] drop-shadow-lg" strokeWidth={1.7} />
+                                <p className="absolute bottom-4 left-0 right-0 text-center text-xs font-black text-emerald-700">ຍົກຝ່າມືແຕະເຄື່ອງສະແກນ</p>
+                            </div>
+                            <div className="flex min-w-0 flex-col justify-center gap-5">
+                                <div><p className="text-sm font-bold text-slate-500">ຍອດຊຳລະທັງໝົດ</p><p className="mt-2 break-words text-3xl font-black text-[#7b2db5]">{formatCurrency(payment?.amount ?? totalPrice)}</p>{payment?.orderNo && <p className="mt-3 break-all text-xs font-semibold text-slate-400">Order: {payment.orderNo}</p>}</div>
+                                <ol className="space-y-3 text-sm font-semibold leading-6 text-slate-600"><li>1. ລໍຖ້າໜ້າສະແກນເປີດຢູ່ເຄື່ອງ Bio POS</li><li>2. ໃຫ້ລູກຄ້າສະແກນຝ່າມື ແລະ ຢືນຢັນການຈ່າຍ</li><li>3. ລໍຖ້າ POS ຢືນຢັນຜົນການຊຳລະ</li></ol>
+                                <div role="status" className={cn("flex items-center gap-3 rounded-xl p-4 text-sm font-bold", paymentFailed ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700')}>{paymentFailed ? <XCircle className="h-5 w-5" /> : <Loader2 className="h-5 w-5 motion-safe:animate-spin" />}{paymentFailed ? 'ການຊຳລະບໍ່ສຳເລັດ' : 'ລໍຖ້າການສະແກນຝ່າມື · ກວດອັດຕະໂນມັດ'}</div>
+                                {paymentError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm font-bold text-red-600">{paymentError}</p>}
+                                {payment && <button onClick={() => { playPosClick(); void checkPaymentStatus(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 font-bold text-slate-700 hover:bg-slate-50">ກວດສະຖານະ</button>}
+                                {payment?.status === 'WAITING' && <button onClick={() => { if (!isProcessing) playPosClick(); void cancelPayment(); }} disabled={isProcessing} className="min-h-12 rounded-xl border border-red-200 bg-red-50 font-bold text-red-600 hover:bg-red-100 disabled:opacity-50">{isProcessing ? 'ກຳລັງຍົກເລີກ...' : 'ຍົກເລີກ'}</button>}
+                            </div>
+                        </div>
                         ) : (
                         <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-6 p-6">
                             <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 p-5">
@@ -460,10 +537,18 @@ export const POSPage = () => {
                             </div>
                         </div>
                         )}
-                        <p className="border-t border-slate-100 px-6 py-3 text-center text-xs font-semibold text-slate-500">{paymentStage === 'QR' ? 'ລະບົບຈະປິດໜ້າ QR ຫຼັງຢືນຢັນການຊຳລະສຳເລັດ' : 'ຊຳລະເງິນຜ່ານ PhaJay'}</p>
+                        <p className="border-t border-slate-100 px-6 py-3 text-center text-xs font-semibold text-slate-500">{paymentStage === 'BIO' ? 'ລະບົບຈະປິດໜ້າຫຼັງຢືນຢັນການສະແກນສຳເລັດ' : paymentStage === 'QR' ? 'ລະບົບຈະປິດໜ້າ QR ຫຼັງຢືນຢັນການຊຳລະສຳເລັດ' : 'ຊຳລະເງິນຜ່ານ PhaJay'}</p>
                     </div>
                 </div>
             )}
+            {showPaymentSuccess && <div className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-emerald-950/25 p-6" role="status" aria-live="polite">
+                <div className="payment-success-pop flex w-full max-w-md flex-col items-center rounded-3xl border border-emerald-200 bg-white px-8 py-10 text-center shadow-2xl">
+                    <div className="payment-success-ring flex h-24 w-24 items-center justify-center rounded-full bg-emerald-500 text-white"><CheckCircle className="h-14 w-14" strokeWidth={2.5} /></div>
+                    <h2 className="mt-5 text-3xl font-black text-emerald-700">ຊຳລະເງິນສຳເລັດ</h2>
+                    <p className="mt-2 text-base font-bold text-slate-500">ຂອບໃຈທີ່ໃຊ້ບໍລິການ 4B-easy-POS</p>
+                    <p className="mt-4 text-sm font-semibold text-slate-400">ກຳລັງກຽມລະບົບສຳລັບລາຍການຕໍ່ໄປ...</p>
+                </div>
+            </div>}
         </div>
     );
 };

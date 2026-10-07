@@ -5,6 +5,7 @@ import { DeviceSession, DeviceMode } from './schemas/session.schema';
 import { RFIDTag, TagStatus } from '../tags/schemas/tag.schema';
 import { Product } from '../products/schemas/product.schema';
 import { SessionsGateway } from './sessions.gateway';
+import { randomUUID } from 'node:crypto';
 
 const BASKET_REUSE_WINDOW_MS = 10_000;
 
@@ -183,6 +184,19 @@ export class SessionsService {
     return result;
   }
 
+  async simulateDevProduct(deviceId: string, productId: string) {
+    if (process.env.ENV !== 'dev') throw new BadRequestException('Development simulator is disabled');
+    if (!deviceId?.trim() || !Types.ObjectId.isValid(productId)) throw new BadRequestException('Valid deviceId and productId are required');
+    const product = await this.productModel.findById(productId);
+    if (!product) throw new BadRequestException('Product not found');
+    const session = await this.getOrCreateSession(deviceId);
+    const currentTagIds = this.normalizeTagIds(session.lastScanData);
+    const tagId = `DEV-${randomUUID()}`;
+    await new this.tagModel({ tagId, productId: new Types.ObjectId(productId), status: TagStatus.AVAILABLE }).save();
+    await this.handleCapture(deviceId, [...currentTagIds, tagId], 'STABLE');
+    return { tagId, productId: String(product._id), name: product.name };
+  }
+
   async clearSession(deviceId: string) {
     const session = await this.getOrCreateSession(deviceId);
     session.lastScanData = [];
@@ -285,7 +299,9 @@ export class SessionsService {
 
     for (const tag of tags) {
       const product = tag.productId;
-      if (tag.status !== TagStatus.AVAILABLE || !product) {
+      // Demo mode does not consume stock at checkout. A tag remains usable
+      // even if an older JSON record already has status = sold.
+      if (!product) {
         unavailableTagIds.push(tag.tagId);
         continue;
       }
