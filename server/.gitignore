@@ -1,5 +1,4 @@
-# compiled output
-/dist
+# server/dist is checked in for the Docker image and deployment
 /node_modules
 /build
 

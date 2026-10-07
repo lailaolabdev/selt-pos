@@ -3,6 +3,8 @@
 
 # Build output and packaged Electron apps
 **/dist/
+!server/dist/
+!server/dist/**
 **/build/
 client/release/
 *.app/
