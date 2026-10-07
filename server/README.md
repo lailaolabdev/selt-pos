@@ -1,6 +1,6 @@
 # 4B-easy-POS server storage
 
-Production runs on MongoDB. The Docker Compose stack starts a persistent MongoDB container and connects the API to it on port `3001`. JSON storage remains available only for local tests or legacy demo data. API routes, RFID Socket.IO events, admin login, payment snapshots and receipt responses remain compatible with the existing client.
+Production runs on MongoDB deployed separately. The Docker Compose stack runs only the API on port `3001` and reads the external MongoDB connection from `.env`. JSON storage remains available only for local tests or legacy demo data. API routes, RFID Socket.IO events, admin login, payment snapshots and receipt responses remain compatible with the existing client.
 
 Run from the `server/` directory:
 
@@ -9,7 +9,7 @@ npm run build
 npm run start:prod
 ```
 
-Docker production stack (uses the locally built `dist/`):
+Docker production API (uses the locally built `dist/`):
 
 ```sh
 docker compose up -d --build
