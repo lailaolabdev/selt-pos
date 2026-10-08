@@ -21,7 +21,10 @@ async function bootstrap() {
         responseTimeMs: Number(tokens['response-time'](request, response) || 0),
         contentLength: tokens.res(request, response, 'content-length'),
         userAgent: tokens['user-agent'](request, response),
-    })));
+    }), {
+        skip: (request) => request.method === 'GET' &&
+            /^\/session\/[^/]+\/snapshot\/?$/.test((request.url || '').split('?')[0]),
+    }));
     app.enableCors();
     app.enableShutdownHooks();
     const swaggerConfig = new swagger_1.DocumentBuilder()

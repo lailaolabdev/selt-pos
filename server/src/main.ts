@@ -21,6 +21,11 @@ async function bootstrap() {
         contentLength: tokens.res(request, response, 'content-length'),
         userAgent: tokens['user-agent'](request, response),
       }),
+      {
+        skip: (request) =>
+          request.method === 'GET' &&
+          /^\/session\/[^/]+\/snapshot\/?$/.test((request.url || '').split('?')[0]),
+      },
     ),
   );
   app.enableCors();
