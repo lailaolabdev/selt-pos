@@ -60,6 +60,7 @@ export declare class PaymentsController {
         amount: number;
         currency: string;
         status: import("./schemas/payment-transaction.schema").PaymentStatus.PAID;
+        paymentChannel: string;
         paidAt: Date | undefined;
         paymentMethod: string;
         items: {

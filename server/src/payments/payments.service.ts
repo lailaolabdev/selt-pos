@@ -287,6 +287,7 @@ export class PaymentsService {
       amount: payment.amount,
       currency: 'LAK',
       status: payment.status,
+      paymentChannel: payment.provider === PaymentProvider.BIO ? 'ຊີວະມິຕິ' : 'ອອນລາຍ',
       paidAt: payment.paidAt,
       paymentMethod: payment.paymentMethod || 'PhaJay',
       items: payment.items.map((item) => ({

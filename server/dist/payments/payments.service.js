@@ -247,6 +247,7 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
             amount: payment.amount,
             currency: 'LAK',
             status: payment.status,
+            paymentChannel: payment.provider === payment_transaction_schema_1.PaymentProvider.BIO ? 'ຊີວະມິຕິ' : 'ອອນລາຍ',
             paidAt: payment.paidAt,
             paymentMethod: payment.paymentMethod || 'PhaJay',
             items: payment.items.map((item) => ({

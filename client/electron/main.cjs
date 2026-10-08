@@ -50,9 +50,10 @@ async function renderReceiptImage(html, paperWidth) {
   const win = new BrowserWindow({ show: false, width, height: 4000, webPreferences: securePrefs });
   try {
     await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    await win.webContents.executeJavaScript('document.fonts.ready');
+    await win.webContents.executeJavaScript('document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))');
     await win.webContents.setZoomFactor(1.9);
-    const height = await win.webContents.executeJavaScript('Math.max(1, Math.min(12000, Math.ceil(Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))))');
+    await win.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const height = await win.webContents.executeJavaScript('Math.max(1, Math.min(12000, Math.ceil(document.body.getBoundingClientRect().height + 2)))');
     const image = await win.webContents.capturePage({ x: 0, y: 0, width, height });
     return { data: image.toPNG().toString('base64'), width, height };
   } finally {
@@ -74,11 +75,15 @@ async function printHtml(html, settings) {
   win.webContents.on('will-navigate', event => event.preventDefault());
   try {
     await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(imagePrintHtml(image)));
-    const height = Math.max(100000, Math.ceil((image.height / image.width) * settings.paperWidth * 1000) + 5000);
+    // The receipt image already includes its cut-space. Keep the proven 58mm
+    // driver allowance, but remove the extra tail on 80mm to avoid a long
+    // blank section before the cutter.
+    const tailAllowance = settings.paperWidth === 58 ? 1500 : 0;
+    const pageHeight = Math.max(10000, Math.ceil((image.height / image.width) * settings.paperWidth * 1000) + tailAllowance);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Printer submission timed out; check paper before retry')), 30000);
       win.webContents.print({ silent: true, deviceName: settings.deviceName, printBackground: true,
-        margins: { marginType: 'none' }, pageSize: { width: settings.paperWidth * 1000, height: Math.max(100000, height + 5000) } },
+        margins: { marginType: 'none' }, pageSize: { width: settings.paperWidth * 1000, height: pageHeight } },
       (success, reason) => { clearTimeout(timer); success ? resolve() : reject(new Error(reason || 'Printer submission failed')); });
     });
     return 'submitted';
@@ -150,13 +155,15 @@ async function createWindow() {
   });
   await mainWindow.loadURL(url);
   if (queue.state.settings.adapter === 'raw') {
-    queue.state.settings = { deviceName: '', paperWidth: queue.state.settings.paperWidth || 80, adapter: 'system' };
+    queue.state.settings = { deviceName: '', paperWidth: queue.state.settings.paperWidth || 58, adapter: 'system' };
     queue.save();
   }
   const installedPrinters = await mainWindow.webContents.getPrintersAsync();
   const currentPrinter = queue.state.settings.deviceName;
   if (queue.state.settings.adapter === 'system' && !currentPrinter && installedPrinters.length) {
-    const defaultPrinter = installedPrinters.find(printer => printer.isDefault) || installedPrinters[0];
+    const defaultPrinter = installedPrinters.find(printer => [printer.name, printer.displayName].some(value => String(value || '').trim().toLowerCase() === 'pos 80'))
+      || installedPrinters.find(printer => printer.isDefault)
+      || installedPrinters[0];
     queue.state.settings.deviceName = defaultPrinter.name;
     queue.save();
   }

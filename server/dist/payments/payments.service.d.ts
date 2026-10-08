@@ -61,6 +61,7 @@ export declare class PaymentsService {
         amount: number;
         currency: string;
         status: PaymentStatus.PAID;
+        paymentChannel: string;
         paidAt: Date | undefined;
         paymentMethod: string;
         items: {

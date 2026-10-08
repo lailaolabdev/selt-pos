@@ -2,7 +2,7 @@ const fs = require('node:fs');
 class PrintQueue {
   constructor(file, adapter) {
     this.file = file; this.adapter = adapter; this.tail = Promise.resolve();
-    this.state = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { settings: { deviceName: '', paperWidth: 80, adapter: 'system' }, jobs: [] };
+    this.state = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { settings: { deviceName: '', paperWidth: 58, adapter: 'system' }, jobs: [] };
     for (const job of this.state.jobs) if (job.status === 'printing') { job.status = 'uncertain'; job.error = 'App stopped while submitting; check paper before retry'; }
     this.save();
   }

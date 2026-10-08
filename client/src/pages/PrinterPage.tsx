@@ -5,7 +5,7 @@ import { CheckCircle2, Printer, RefreshCw, TestTube2 } from 'lucide-react';
 export function PrinterPage() {
   const [state, setState] = useState<DesktopState | null>(null);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
-  const [settings, setSettings] = useState<PrinterSettings>({ deviceName: '', paperWidth: 80, adapter: 'system' });
+  const [settings, setSettings] = useState<PrinterSettings>({ deviceName: '', paperWidth: 58, adapter: 'system' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const desktop = window.posDesktop;
@@ -14,7 +14,9 @@ export function PrinterPage() {
     const devices = await desktop.listPrinters();
     const next = await desktop.getState();
     const configuredPrinterExists = devices.some(device => device.name === next.settings.deviceName);
-    const defaultPrinter = devices.find(device => device.isDefault) || devices[0];
+    const defaultPrinter = devices.find(device => [device.name, device.displayName].some(value => value.trim().toLowerCase() === 'pos 80'))
+      || devices.find(device => device.isDefault)
+      || devices[0];
     const selectedSettings: PrinterSettings = {
       ...next.settings,
       adapter: 'system',
@@ -25,7 +27,7 @@ export function PrinterPage() {
   useEffect(() => { void refresh().catch(() => setMessage(text.error)); }, [refresh]);
   async function action(work: () => Promise<unknown>, success = text.saved) {
     setBusy(true); setMessage('');
-    try { await work(); await refresh(); setMessage(success); } catch { setMessage(text.error); } finally { setBusy(false); }
+    try { await work(); await refresh(); setMessage(success); } catch (error) { setMessage(error instanceof Error ? error.message : text.error); } finally { setBusy(false); }
   }
   const testSelectedPrinter = () => action(async () => {
     if (!settings.deviceName) throw new Error('Select a printer');
