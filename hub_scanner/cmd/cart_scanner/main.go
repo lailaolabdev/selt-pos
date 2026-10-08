@@ -21,8 +21,8 @@ var (
 	lastAnyTagTime time.Time
 	lastNewTagTime time.Time
 	isStable       bool
-	// serverURL      = "https://api-seltpos.soudev.site/tags/capture"
-	serverURL     = "http://localhost:3000/tags/capture"
+	serverURL      = "https://api-seltpos.soudev.site/tags/capture"
+	// serverURL     = "http://localhost:3000/tags/capture"
 	deviceID      = "RPi-POS-01"
 	sessionMode   string
 	captureClient = &http.Client{Timeout: 5 * time.Second}
