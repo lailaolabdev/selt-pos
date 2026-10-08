@@ -36,7 +36,7 @@ The POS sends receipts through the Windows Print Spooler. It does not open the U
 
 If Windows shows the device only under **Ports (COM & LPT)** and it does not appear in **Printers & scanners**, the printer has no Windows print driver installed. Install the correct driver first. Direct ESC/POS-over-COM or raw USB printing is a separate adapter and is not used by the current spooler-based receipt function.
 
-The app bundles a Lao font (SIL Open Font License in `public/fonts/OFL.txt`). Native printing renders a separate HTML receipt, waits for the font, and submits silently to the configured OS device. Printer enumeration confirms an installed driver, not physical connectivity or paper availability. Validate margins, long receipts and cutter behavior on the actual printer/OS.
+The app bundles a Lao font (SIL Open Font License in `public/fonts/OFL.txt`). Native printing renders the receipt with the Lao font into a PNG image first, then submits that image silently to the configured OS printer. Paper cutting uses the printer driver's Auto cut setting. Printer enumeration confirms an installed driver, not physical connectivity or paper availability. Validate margins, long receipts and cutter behavior on the actual printer/OS.
 
 ## Configuration
 

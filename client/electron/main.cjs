@@ -4,7 +4,6 @@ const path = require('node:path');
 const http = require('node:http');
 const { PrintQueue } = require('./queue.cjs');
 const { receiptHtml } = require('./receipt.cjs');
-const { listSerialPorts, printRaster } = require('./raw-printer.cjs');
 const { RfidScanner } = require('./rfid-scanner.cjs');
 const apiUrl = (process.env.POS_API_URL || 'https://api-seltpos.soudev.site').replace(/\/$/, '');
 let mainWindow, paymentWindow, server, queue, rfidScanner, origin;
@@ -45,36 +44,37 @@ async function prepare(receipt, settings, reprint = false) {
   }
   return receiptHtml(receipt, settings.paperWidth, 'data:font/woff2;base64,' + fs.readFileSync(path.join(__dirname, '../public/fonts/noto-sans-lao.woff2')).toString('base64'), reprint);
 }
+
+async function renderReceiptImage(html, paperWidth) {
+  const width = paperWidth === 58 ? 384 : 576;
+  const win = new BrowserWindow({ show: false, width, height: 4000, webPreferences: securePrefs });
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    await win.webContents.executeJavaScript('document.fonts.ready');
+    await win.webContents.setZoomFactor(1.9);
+    const height = await win.webContents.executeJavaScript('Math.max(1, Math.min(12000, Math.ceil(Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))))');
+    const image = await win.webContents.capturePage({ x: 0, y: 0, width, height });
+    return { data: image.toPNG().toString('base64'), width, height };
+  } finally {
+    win.destroy();
+  }
+}
+
+function imagePrintHtml(image) {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:100%;height:auto}</style></head><body><img src="data:image/png;base64,${image.data}" width="${image.width}" height="${image.height}" /></body></html>`;
+}
+
 async function printHtml(html, settings) {
   if (settings.adapter === 'mock') return 'mock';
-  if (settings.adapter === 'raw') {
-    const win = new BrowserWindow({ show: false, width: 576, height: 4000, webPreferences: securePrefs });
-    try {
-      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-      await win.webContents.executeJavaScript('document.fonts.ready');
-      await win.webContents.setZoomFactor(1.9);
-      const height = await win.webContents.executeJavaScript('Math.max(1, Math.ceil(document.body.scrollHeight))');
-      const image = await win.webContents.capturePage({ x: 0, y: 0, width: 576, height: Math.min(height, 4000) });
-      const size = image.getSize();
-      await printRaster({
-        bitmap: image.getBitmap(),
-        width: size.width,
-        height: size.height,
-        connection: settings.connection || 'serial',
-        portPath: settings.deviceName || process.env.POS_PRINTER_PORT || 'COM1',
-        baudRate: Number(settings.baudRate || process.env.POS_PRINTER_BAUD || 9600),
-        printerIp: settings.printerIp || process.env.POS_PRINTER_IP,
-        printerPort: Number(settings.printerPort || process.env.POS_PRINTER_TCP_PORT || 9100),
-      });
-      return 'submitted';
-    } finally { win.destroy(); }
-  }
+  if (settings.adapter !== 'system') throw new Error('Select a Windows printer in settings');
+  if (!settings.deviceName) throw new Error('Select a printer in settings');
+  const image = await renderReceiptImage(html, settings.paperWidth);
   const win = new BrowserWindow({ show: false, webPreferences: securePrefs });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
   try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    const height = await win.webContents.executeJavaScript('document.fonts.ready.then(() => { if (!document.fonts.check("12px Lao")) throw new Error("Receipt font unavailable"); return Math.ceil(document.body.getBoundingClientRect().height * 25400 / 96); })');
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(imagePrintHtml(image)));
+    const height = Math.max(100000, Math.ceil((image.height / image.width) * settings.paperWidth * 1000) + 5000);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Printer submission timed out; check paper before retry')), 30000);
       win.webContents.print({ silent: true, deviceName: settings.deviceName, printBackground: true,
@@ -108,36 +108,23 @@ async function createWindow() {
     onEvent: (type, data) => mainWindow?.webContents.send('rfid:event', { type, data }),
   });
   handle('printer:list', async () => {
-    const printers = (await mainWindow.webContents.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: p.isDefault, status: p.status }));
-    const serialPorts = await listSerialPorts();
-    if (queue.state.settings.adapter === 'raw' && (queue.state.settings.connection || 'serial') === 'serial' && serialPorts.length && !serialPorts.some(port => port.path === queue.state.settings.deviceName)) {
-      queue.state.settings.deviceName = serialPorts[0].path;
-      queue.save();
-    }
-    for (const port of serialPorts.reverse()) printers.unshift({ name: port.path, displayName: `${port.displayName} · USB raw ESC/POS`, isDefault: false, status: 0 });
-    return printers;
+    return (await mainWindow.webContents.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: p.isDefault, status: p.status }));
   });
   handle('printer:state', () => ({ settings: queue.state.settings, jobs: queue.state.jobs.slice(-100).reverse() }));
   handle('printer:configure', settings => queue.serial(async () => {
-    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'raw', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
+    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
     if (settings.adapter === 'system' && !(await mainWindow.webContents.getPrintersAsync()).some(p => p.name === settings.deviceName)) throw new Error('Unknown printer');
-    const connection = settings.connection === 'network' ? 'network' : 'serial';
-    if (settings.adapter === 'raw' && connection === 'network' && (!settings.printerIp || !/^\d{1,3}(\.\d{1,3}){3}$/.test(settings.printerIp))) throw new Error('Enter a valid printer IP address');
     queue.state.settings = {
-      deviceName: settings.deviceName || (process.env.POS_PRINTER_PORT || 'COM1'),
+      deviceName: settings.deviceName,
       paperWidth: settings.paperWidth,
       adapter: settings.adapter,
-      connection,
-      printerIp: String(settings.printerIp || process.env.POS_PRINTER_IP || '192.168.1.100'),
-      printerPort: Number(settings.printerPort || process.env.POS_PRINTER_TCP_PORT || 9100),
-      baudRate: Number(settings.baudRate || process.env.POS_PRINTER_BAUD || 9600),
     }; queue.save(); return queue.state.settings;
   }));
   handle('printer:enqueue', id => { if (typeof id !== 'string' || !idPattern.test(id)) throw new Error('Invalid payment id'); return queue.enqueue(id); });
   handle('printer:retry', id => { if (typeof id !== 'string' || !idPattern.test(id)) throw new Error('Invalid job id'); return queue.retry(id); });
   handle('printer:test', () => queue.serial(async () => {
     const settings = queue.state.settings;
-    const html = await prepare({ status: 'PAID', orderNo: 'TEST', amount: 1000, paymentMethod: 'TEST', paidAt: new Date().toISOString(), items: [{ name: 'ທົດສອບການພິມ', count: 1, subtotal: 1000 }] }, settings);
+    const html = await prepare({ status: 'PAID', orderNo: 'TEST', amount: 1000, paymentMethod: 'TEST', paidAt: new Date().toISOString(), items: [{ name: 'ຍິນດີຕອນຮັບສູ່ 4B POS', count: 1, subtotal: 1000 }] }, settings);
     return printHtml(html, settings);
   }));
   handle('rfid:state', () => rfidScanner.snapshot());
@@ -162,6 +149,10 @@ async function createWindow() {
     await child.loadURL(target.href); return true;
   });
   await mainWindow.loadURL(url);
+  if (queue.state.settings.adapter === 'raw') {
+    queue.state.settings = { deviceName: '', paperWidth: queue.state.settings.paperWidth || 80, adapter: 'system' };
+    queue.save();
+  }
   const installedPrinters = await mainWindow.webContents.getPrintersAsync();
   const currentPrinter = queue.state.settings.deviceName;
   if (queue.state.settings.adapter === 'system' && !currentPrinter && installedPrinters.length) {

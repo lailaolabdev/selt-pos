@@ -14,7 +14,7 @@ const env = { ...process.env, POS_KIOSK: '0' }; delete env.ELECTRON_RUN_AS_NODE;
 async function launch() {
   desktop = await electron.launch({ executablePath: process.env.POS_CHECK_EXECUTABLE || require('electron'), args: [...(process.env.POS_CHECK_EXECUTABLE ? [] : ['.']), '--user-data-dir=' + profile], cwd: path.resolve(__dirname, '..'), env, timeout: 60000 });
   const page = await desktop.firstWindow();
-  await page.route('http://localhost:3000/**', route => {
+  await page.route(/^(?:http:\/\/localhost:3000|https:\/\/api-seltpos\.soudev\.site)\//, route => {
     const url = route.request().url();
     const data = url.includes('/status') ? receipt : { deviceId: 'RPi-POS-01', mode: 'CHECKOUT', status: 'IDLE', result: { items: [], tagIds: [], totalPrice: 0 } };
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
