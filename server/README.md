@@ -272,6 +272,7 @@ PHAJAY_TEST_KEY=
 - `PHAJAY_QR_BANK` sets the default for older callers without a `bank` field. The POS sends its selected `bank`: `bcel`, `jdb`, `ldb`, `ib`, `stb`, or `m-money`.
 - Embedded QR selects the production or sandbox endpoint from `PHAJAY_PAYMENT_MODE`. `PHAJAY_QR_PATH` may override the QR path and can contain `{bank}`.
 - Configure PhaJay portal webhook to `https://YOUR_API_DOMAIN/payments/phajay/webhook`.
+- Morgan logs every HTTP request as JSON with `ip`, `method`, `path`, `status`, `responseTimeMs`, `contentLength`, and `userAgent`. Check with `docker logs -f 4b-easy-pos-server | grep '"type":"http"'`.
 - Server logs every incoming PhaJay webhook with the received headers (sensitive auth headers are filtered), parsed `payload`, raw body, lookup keys, amount comparison, and final processing result. Check with `docker logs -f 4b-easy-pos-server | grep PhaJayWebhook`.
 - BCEL QR must be scanned with BCEL One; other banks cannot scan this QR.
 - The POS checks local status every 3 seconds and listens for `paymentUpdate`; it restores the same QR after reload. Closing the QR screen hides it and keeps the payment active; use the Show QR button to reopen it.

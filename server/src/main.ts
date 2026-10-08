@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import morgan from 'morgan';
 import { AppModule } from './app.module';
 import { loadEnvFile } from './env';
 
@@ -7,6 +8,21 @@ loadEnvFile();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
+  app.use(
+    morgan((tokens, request, response) =>
+      JSON.stringify({
+        type: 'http',
+        timestamp: new Date().toISOString(),
+        ip: tokens['remote-addr'](request, response),
+        method: tokens.method(request, response),
+        path: tokens.url(request, response),
+        status: Number(tokens.status(request, response) || 0),
+        responseTimeMs: Number(tokens['response-time'](request, response) || 0),
+        contentLength: tokens.res(request, response, 'content-length'),
+        userAgent: tokens['user-agent'](request, response),
+      }),
+    ),
+  );
   app.enableCors();
   app.enableShutdownHooks();
 
