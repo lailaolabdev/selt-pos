@@ -78,10 +78,9 @@ export class PaymentsController {
   @Post('bio/webhook')
   handleBioWebhook(
     @Body() payload: Record<string, unknown>,
-    @Headers('x-webhook-signature') signature: string | undefined,
     @Req() request: Request & { rawBody?: Buffer },
   ) {
-    return this.paymentsService.handleBioWebhook(payload, request.rawBody, signature);
+    return this.paymentsService.handleBioWebhook(payload, request.rawBody);
   }
 
   @Get(':paymentId/status')

@@ -30,7 +30,7 @@ export declare class PaymentsController {
         intentId: string;
         expiresInSeconds: number;
     }>;
-    handleBioWebhook(payload: Record<string, unknown>, signature: string | undefined, request: Request & {
+    handleBioWebhook(payload: Record<string, unknown>, request: Request & {
         rawBody?: Buffer;
     }): Promise<{
         message: string;

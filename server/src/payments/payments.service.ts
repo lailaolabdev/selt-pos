@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomBytes } from 'node:crypto';
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PHAJAY_QR_BANKS } from './dto/payment.dto';
 import { Model } from 'mongoose';
 import { SessionsService } from '../sessions/sessions.service';
@@ -386,19 +385,17 @@ export class PaymentsService {
     return { message: 'OK' };
   }
 
-  async handleBioWebhook(payload: Record<string, unknown>, rawBody: Buffer | undefined, signature?: string) {
+  async handleBioWebhook(payload: Record<string, unknown>, rawBody?: Buffer) {
     const demoMode = process.env.BIO_DEMO_MODE?.trim().toLowerCase() === 'true';
-    if (!demoMode) {
-      const secret = process.env.BIO_WEBHOOK_SECRET?.trim();
-      if (!secret) throw new ServiceUnavailableException('BIO_WEBHOOK_SECRET is not configured');
-      if (!rawBody || !signature) throw new BadRequestException('Invalid Bio Payment webhook signature');
-      const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
-      const actual = Buffer.from(signature.trim(), 'utf8');
-      const expectedBuffer = Buffer.from(expected, 'utf8');
-      if (actual.length !== expectedBuffer.length || !timingSafeEqual(actual, expectedBuffer)) {
-        throw new BadRequestException('Invalid Bio Payment webhook signature');
-      }
-    }
+    this.logger.log(
+      `[BioWebhook] RECEIVED ${JSON.stringify({
+        receivedAt: new Date().toISOString(),
+        demoMode,
+        hasRawBody: Boolean(rawBody),
+        rawBody: rawBody?.toString('utf8'),
+        payload,
+      })}`,
+    );
     const orderNo = this.toOptionalString(payload.orderNo);
     const transactionId = this.toOptionalString(payload.transactionId);
     const paidAmount = Number(payload.amount ?? payload.txnAmount);
@@ -410,7 +407,12 @@ export class PaymentsService {
         amount: paidAmount,
       });
     }
-    if (!payment) return { message: 'PAYMENT_NOT_FOUND' };
+    if (!payment) {
+      this.logger.warn(
+        `[BioWebhook] PAYMENT_NOT_FOUND ${JSON.stringify({ orderNo, transactionId, paidAmount, payload })}`,
+      );
+      return { message: 'PAYMENT_NOT_FOUND' };
+    }
     payment.webhookPayloads = [...(payment.webhookPayloads || []), payload];
     payment.provider = PaymentProvider.BIO;
     payment.providerTransactionId = transactionId || payment.providerTransactionId;
@@ -424,13 +426,21 @@ export class PaymentsService {
     const validPayment = demoMode
       ? idMatches || amountMatches
       : payload.event === 'palm_payment.succeeded' && currency === 'LAK' && amountMatches;
-    if (!validPayment) return { message: 'IGNORED' };
+    if (!validPayment) {
+      this.logger.warn(
+        `[BioWebhook] IGNORED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerEvent: payload.event, currency, paidAmount, expectedAmount: payment.amount, idFromProvider, payload })}`,
+      );
+      return { message: 'IGNORED' };
+    }
     if (payment.status !== PaymentStatus.PAID) {
       payment.status = PaymentStatus.PAID;
       payment.paidAt = payload.paidAt ? new Date(String(payload.paidAt)) : new Date();
       await this.sessionsService.clearSession(payment.deviceId);
       await payment.save();
       this.emitPaymentUpdate(payment);
+      this.logger.log(
+        `[BioWebhook] PAYMENT_COMPLETED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, amount: paidAmount, transactionId })}`,
+      );
     } else {
       await payment.save();
     }

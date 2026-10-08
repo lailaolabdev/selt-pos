@@ -274,6 +274,7 @@ PHAJAY_TEST_KEY=
 - Configure PhaJay portal webhook to `https://YOUR_API_DOMAIN/payments/phajay/webhook`.
 - Morgan logs HTTP requests as JSON with `ip`, `method`, `path`, `status`, `responseTimeMs`, `contentLength`, and `userAgent`. RFID polling requests to `GET /session/:deviceId/snapshot` are intentionally skipped to keep logs readable. Check with `docker logs -f 4b-easy-pos-server | grep '"type":"http"'`.
 - Server logs every incoming PhaJay webhook with the received headers (sensitive auth headers are filtered), parsed `payload`, raw body, lookup keys, amount comparison, and final processing result. Check with `docker logs -f 4b-easy-pos-server | grep PhaJayWebhook`.
+- Bio Payment callbacks use the `BioWebhook` log prefix and include the parsed/raw payload plus a safe processing reason such as `PAYMENT_NOT_FOUND` or `IGNORED`. Bio webhook signature validation is disabled for this demo flow.
 - BCEL QR must be scanned with BCEL One; other banks cannot scan this QR.
 - The POS checks local status every 3 seconds and listens for `paymentUpdate`; it restores the same QR after reload. Closing the QR screen hides it and keeps the payment active; use the Show QR button to reopen it.
 - Payment is confirmed only after a matching PhaJay callback with `PAYMENT_COMPLETED` and the exact `txnAmount`. This marks tags sold and clears the basket; Desktop then queues the receipt. Polling local status cannot replace a provider callback.

@@ -76,7 +76,7 @@ export declare class PaymentsService {
     }): Promise<{
         message: string;
     }>;
-    handleBioWebhook(payload: Record<string, unknown>, rawBody: Buffer | undefined, signature?: string): Promise<{
+    handleBioWebhook(payload: Record<string, unknown>, rawBody?: Buffer): Promise<{
         message: string;
     }>;
     private requestBioIntent;

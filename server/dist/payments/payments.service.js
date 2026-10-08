@@ -17,7 +17,6 @@ exports.PaymentsService = void 0;
 const common_1 = require("@nestjs/common");
 const mongoose_1 = require("@nestjs/mongoose");
 const node_crypto_1 = require("node:crypto");
-const node_crypto_2 = require("node:crypto");
 const payment_dto_1 = require("./dto/payment.dto");
 const mongoose_2 = require("mongoose");
 const sessions_service_1 = require("../sessions/sessions.service");
@@ -308,21 +307,15 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         this.logger.log(`[PhaJayWebhook] PROCESSED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerStatus, localStatus: payment.status })}`);
         return { message: 'OK' };
     }
-    async handleBioWebhook(payload, rawBody, signature) {
+    async handleBioWebhook(payload, rawBody) {
         const demoMode = process.env.BIO_DEMO_MODE?.trim().toLowerCase() === 'true';
-        if (!demoMode) {
-            const secret = process.env.BIO_WEBHOOK_SECRET?.trim();
-            if (!secret)
-                throw new common_1.ServiceUnavailableException('BIO_WEBHOOK_SECRET is not configured');
-            if (!rawBody || !signature)
-                throw new common_1.BadRequestException('Invalid Bio Payment webhook signature');
-            const expected = (0, node_crypto_2.createHmac)('sha256', secret).update(rawBody).digest('hex');
-            const actual = Buffer.from(signature.trim(), 'utf8');
-            const expectedBuffer = Buffer.from(expected, 'utf8');
-            if (actual.length !== expectedBuffer.length || !(0, node_crypto_2.timingSafeEqual)(actual, expectedBuffer)) {
-                throw new common_1.BadRequestException('Invalid Bio Payment webhook signature');
-            }
-        }
+        this.logger.log(`[BioWebhook] RECEIVED ${JSON.stringify({
+            receivedAt: new Date().toISOString(),
+            demoMode,
+            hasRawBody: Boolean(rawBody),
+            rawBody: rawBody?.toString('utf8'),
+            payload,
+        })}`);
         const orderNo = this.toOptionalString(payload.orderNo);
         const transactionId = this.toOptionalString(payload.transactionId);
         const paidAmount = Number(payload.amount ?? payload.txnAmount);
@@ -334,8 +327,10 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
                 amount: paidAmount,
             });
         }
-        if (!payment)
+        if (!payment) {
+            this.logger.warn(`[BioWebhook] PAYMENT_NOT_FOUND ${JSON.stringify({ orderNo, transactionId, paidAmount, payload })}`);
             return { message: 'PAYMENT_NOT_FOUND' };
+        }
         payment.webhookPayloads = [...(payment.webhookPayloads || []), payload];
         payment.provider = payment_transaction_schema_1.PaymentProvider.BIO;
         payment.providerTransactionId = transactionId || payment.providerTransactionId;
@@ -347,14 +342,17 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         const validPayment = demoMode
             ? idMatches || amountMatches
             : payload.event === 'palm_payment.succeeded' && currency === 'LAK' && amountMatches;
-        if (!validPayment)
+        if (!validPayment) {
+            this.logger.warn(`[BioWebhook] IGNORED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerEvent: payload.event, currency, paidAmount, expectedAmount: payment.amount, idFromProvider, payload })}`);
             return { message: 'IGNORED' };
+        }
         if (payment.status !== payment_transaction_schema_1.PaymentStatus.PAID) {
             payment.status = payment_transaction_schema_1.PaymentStatus.PAID;
             payment.paidAt = payload.paidAt ? new Date(String(payload.paidAt)) : new Date();
             await this.sessionsService.clearSession(payment.deviceId);
             await payment.save();
             this.emitPaymentUpdate(payment);
+            this.logger.log(`[BioWebhook] PAYMENT_COMPLETED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, amount: paidAmount, transactionId })}`);
         }
         else {
             await payment.save();
