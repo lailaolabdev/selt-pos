@@ -11,7 +11,7 @@ export class SetModeDto {
   @ApiProperty({
     enum: DeviceMode,
     example: DeviceMode.CHECKOUT,
-    description: 'IDLE, ADD, CHECK, CHECKOUT. capture endpoint ຈະປະມວນຜົນຕາມ mode ນີ້.',
+    description: 'IDLE, ADD, CHECK, CHECKOUT, PAYMENT. PAYMENT ຈະ freeze basket ໄວ້ລະຫວ່າງຊຳລະເງິນ.',
   })
   mode: DeviceMode;
 

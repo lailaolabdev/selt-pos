@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Logger,
   Injectable,
   InternalServerErrorException,
   ServiceUnavailableException,
@@ -38,6 +39,8 @@ interface BioIntentResponse {
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     @InjectModel(PaymentTransaction.name)
     private readonly paymentModel: Model<PaymentTransaction>,
@@ -295,7 +298,30 @@ export class PaymentsService {
     };
   }
 
-  async handlePhaJayWebhook(payload: Record<string, any>) {
+  async handlePhaJayWebhook(
+    payload: Record<string, any>,
+    meta?: {
+      rawBody?: Buffer;
+      headers?: Record<string, string | string[] | undefined>;
+      ip?: string;
+    },
+  ) {
+    const receivedAt = new Date().toISOString();
+    const safeHeaders = Object.fromEntries(
+      Object.entries(meta?.headers || {})
+        .filter(([name]) => !['authorization', 'cookie', 'x-api-key'].includes(name.toLowerCase()))
+        .map(([name, value]) => [name, value]),
+    );
+    this.logger.log(
+      `[PhaJayWebhook] RECEIVED ${JSON.stringify({
+        receivedAt,
+        ip: meta?.ip,
+        headers: safeHeaders,
+        payload,
+        rawBody: meta?.rawBody?.toString('utf8'),
+      })}`,
+    );
+
     const orderNo = this.toOptionalString(payload.orderNo);
     const linkCode = this.toOptionalString(payload.linkCode);
     const providerTransactionId = this.toOptionalString(payload.transactionId);
@@ -307,6 +333,9 @@ export class PaymentsService {
     );
 
     if (!payment) {
+      this.logger.warn(
+        `[PhaJayWebhook] PAYMENT_NOT_FOUND ${JSON.stringify({ orderNo, linkCode, transactionId: providerTransactionId, status: providerStatus })}`,
+      );
       return { message: 'PAYMENT_NOT_FOUND' };
     }
 
@@ -323,6 +352,9 @@ export class PaymentsService {
     ) {
       const paidAmount = Number(payload.txnAmount ?? payload.amount ?? 0);
       if (!Number.isFinite(paidAmount) || paidAmount !== payment.amount) {
+        this.logger.warn(
+          `[PhaJayWebhook] AMOUNT_MISMATCH ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, expected: payment.amount, received: paidAmount, payload })}`,
+        );
         payment.status = PaymentStatus.FAILED;
         await payment.save();
         this.emitPaymentUpdate(payment);
@@ -331,6 +363,9 @@ export class PaymentsService {
 
       payment.status = PaymentStatus.PAID;
       payment.paidAt = new Date();
+      this.logger.log(
+        `[PhaJayWebhook] PAYMENT_COMPLETED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, amount: paidAmount, transactionId: providerTransactionId })}`,
+      );
       // Demo mode: payment must not consume RFID stock. Keep the tag linked
       // to its product so the same tag can be scanned again during demos.
       await this.sessionsService.clearSession(payment.deviceId);
@@ -345,6 +380,9 @@ export class PaymentsService {
 
     await payment.save();
     this.emitPaymentUpdate(payment);
+    this.logger.log(
+      `[PhaJayWebhook] PROCESSED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerStatus, localStatus: payment.status })}`,
+    );
     return { message: 'OK' };
   }
 
@@ -470,13 +508,26 @@ export class PaymentsService {
     tag2: string;
     tag3: string;
   }): Promise<PhaJayQrResponse> {
-    const secretKey = process.env.PHAJAY_SECRET_KEY?.trim();
+    const mode = (process.env.PHAJAY_PAYMENT_MODE || 'production').trim().toLowerCase();
+    const sandbox = mode === 'sandbox' || mode === 'test';
+    const secretKey = (sandbox
+      ? process.env.PHAJAY_TEST_KEY || process.env.PHAJAY_SECRET_KEY
+      : process.env.PHAJAY_SECRET_KEY
+    )?.trim();
     if (!secretKey) {
       throw new ServiceUnavailableException(
-        'PhaJay production secret key is not configured',
+        sandbox
+          ? 'PhaJay test key is not configured'
+          : 'PhaJay production secret key is not configured',
       );
     }
-    const url = `https://payment-gateway.phajay.co/v1/api/payment/generate-${body.bank}-qr`;
+    const baseUrl = (process.env.PHAJAY_BASE_URL || 'https://payment-gateway.phajay.co').replace(/\/$/, '');
+    const defaultPath = `/v1/api/${sandbox ? 'test/' : ''}payment/generate-${body.bank}-qr`;
+    const configuredPath = process.env.PHAJAY_QR_PATH?.trim();
+    const path = configuredPath
+      ? configuredPath.replace('{bank}', body.bank)
+      : defaultPath;
+    const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
     const { bank, ...payload } = body;
     void bank;
 

@@ -8,6 +8,7 @@ export declare class PaymentsService {
     private readonly sessionsService;
     private readonly gateway;
     private readonly tagsService;
+    private readonly logger;
     constructor(paymentModel: Model<PaymentTransaction>, sessionsService: SessionsService, gateway: SessionsGateway, tagsService: TagsService);
     createPhaJayPaymentLink(deviceId: string): Promise<{
         paymentId: string;
@@ -68,7 +69,11 @@ export declare class PaymentsService {
             subtotal: number;
         }[];
     }>;
-    handlePhaJayWebhook(payload: Record<string, any>): Promise<{
+    handlePhaJayWebhook(payload: Record<string, any>, meta?: {
+        rawBody?: Buffer;
+        headers?: Record<string, string | string[] | undefined>;
+        ip?: string;
+    }): Promise<{
         message: string;
     }>;
     handleBioWebhook(payload: Record<string, unknown>, rawBody: Buffer | undefined, signature?: string): Promise<{

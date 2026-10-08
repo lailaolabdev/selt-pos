@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { useDeviceSession } from '@/hooks/useDeviceSession';
 import { socket } from '@/lib/socket';
 import { playPosClick, playPosSound, playPosSounds, stopPosSound } from '@/lib/tts';
-import { ShoppingCart, Trash2, CheckCircle, CreditCard, Loader2, ScanLine, ShieldCheck, ArrowRight, RotateCcw, ShoppingBasket, Package, XCircle, Landmark, Fingerprint, Wallet, Plus, Hand } from 'lucide-react';
+import { ShoppingCart, CheckCircle, CreditCard, Loader2, ScanLine, ShieldCheck, ArrowRight, ShoppingBasket, Package, XCircle, Landmark, Fingerprint, Wallet, Plus, Hand, Play } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 
 const PAYMENT_STORAGE_KEY = 'pos-active-payment-v1';
@@ -54,7 +54,7 @@ export const POSPage = () => {
     });
     const [showQR, setShowQR] = useState(Boolean(payment));
     const [paymentStage, setPaymentStage] = useState<PaymentStage>(payment?.provider === 'bio' ? 'BIO' : payment ? 'QR' : 'METHOD');
-    const [selectedBank, setSelectedBank] = useState<BankId>('jdb');
+    const [selectedBank, setSelectedBank] = useState<BankId>('bcel');
     const activePaymentRef = useRef(payment);
     const handledPaymentsRef = useRef(new Set<string>());
     const [printMessage, setPrintMessage] = useState('');
@@ -62,15 +62,19 @@ export const POSPage = () => {
     const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
     const [devProducts, setDevProducts] = useState<{ _id: string; name: string; basePrice: number }[]>([]);
     const [devProductLoading, setDevProductLoading] = useState(false);
+    const [scanStarted, setScanStarted] = useState(false);
+    const [checkoutLocked, setCheckoutLocked] = useState(false);
+    const [startLoading, setStartLoading] = useState(false);
     const lastObservedTagsRef = useRef<string[]>([]);
     const readySoundPlayedRef = useRef(false);
     const itemCount = items.reduce((acc, item) => acc + item.count, 0);
     const hasItems = items.length > 0;
     const isScanning = scannerStatus === 'SCANNING';
-    const rfid = useDeviceSession('CHECKOUT', data => {
+    const sessionMode = checkoutLocked ? 'PAYMENT' : scanStarted ? 'CHECKOUT' : 'IDLE';
+    const rfid = useDeviceSession(sessionMode, data => {
         useCartStore.getState().updateCart({ ...data.result, scannedTagIds: data.tagIds || data.result?.scannedTagIds, status: data.status });
     });
-    const isReadyToPay = rfid.ready && hasItems && scannerStatus === 'STABLE';
+    const isReadyToPay = (scanStarted || checkoutLocked) && rfid.ready && hasItems && scannerStatus === 'STABLE';
     const scannedKey = scannedTagIds.join('|');
 
     useEffect(() => {
@@ -79,7 +83,7 @@ export const POSPage = () => {
     }, []);
 
     const simulateDevProduct = async (productId: string) => {
-        if (devProductLoading || !rfid.ready) return;
+        if (devProductLoading || !scanStarted || !rfid.ready) return;
         setDevProductLoading(true);
         try {
             await api.post('/tags/dev/capture-product', { deviceId, productId });
@@ -90,12 +94,31 @@ export const POSPage = () => {
         }
     };
 
+    const handleStartScan = async () => {
+        if (startLoading || scanStarted) return;
+        setStartLoading(true);
+        setPaymentError('');
+        try {
+            await api.post('/session/clear', { deviceId });
+            clearCart();
+            setCheckoutLocked(false);
+            setScanStarted(true);
+        } catch (error) {
+            setPaymentError((isAxiosError(error) ? error.response?.data?.message : undefined) || 'ບໍ່ສາມາດເລີ່ມອ່ານ RFID ໄດ້');
+        } finally {
+            setStartLoading(false);
+        }
+    };
+
     const finishPaidPayment = useCallback(async (paid: PhaJayPayment) => {
         if (activePaymentRef.current?.paymentId !== paid.paymentId || handledPaymentsRef.current.has(paid.paymentId)) return;
         handledPaymentsRef.current.add(paid.paymentId);
         playPosSounds(['/sound/sound_success.mp3', '/sound/success_payment.wav']);
         setShowPaymentSuccess(true);
+        setScanStarted(false);
+        setCheckoutLocked(false);
         clearCart();
+        void api.post('/session/clear', { deviceId }).catch(error => console.error('Could not reset checkout session after payment:', error));
         setShowQR(false);
         setPaymentError('');
         setPrintMessage(printerText.paid);
@@ -112,7 +135,7 @@ export const POSPage = () => {
             handledPaymentsRef.current.delete(paid.paymentId);
             setPrintMessage(`${printerText.paid} — ${printerText.error}`);
         }
-    }, [clearCart]);
+    }, [clearCart, deviceId]);
 
     useEffect(() => {
         if (!showPaymentSuccess) return;
@@ -128,6 +151,10 @@ export const POSPage = () => {
         setShowQR(false);
         setPaymentStage('METHOD');
         setPaymentError('');
+        setScanStarted(false);
+        setCheckoutLocked(false);
+        clearCart();
+        void api.post('/session/clear', { deviceId }).catch(error => console.error('Could not reset checkout session after cancellation:', error));
     };
 
     const cancelPayment = async () => {
@@ -136,12 +163,7 @@ export const POSPage = () => {
         setIsProcessing(true);
         try {
             await api.post(`/payments/phajay/${current.paymentId}/cancel`, { deviceId });
-            localStorage.removeItem(PAYMENT_STORAGE_KEY);
-            activePaymentRef.current = null;
-            setPayment(null);
-            setPaymentError('');
-            setPaymentStage('METHOD');
-            setShowQR(false);
+            finishFailedPayment();
         } catch (error: unknown) {
             setPaymentError((isAxiosError(error) ? error.response?.data?.message : undefined) || 'ບໍ່ສາມາດຍົກເລີກຄິວຊຳລະເງິນໄດ້');
         } finally {
@@ -207,6 +229,7 @@ export const POSPage = () => {
 
     const handleCheckout = () => {
         if (activePaymentRef.current?.status === 'WAITING' || isProcessing) return;
+        setCheckoutLocked(true);
         setPayment(null);
         activePaymentRef.current = null;
         setPaymentError('');
@@ -294,18 +317,9 @@ export const POSPage = () => {
         return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus); };
     }, [pollingPaymentId, pollingPaymentStatus, checkPaymentStatus]);
 
-    const handleClearCart = async () => {
-        try {
-            await api.post('/session/clear', { deviceId });
-            clearCart();
-        } catch (err) {
-            console.error(err);
-        }
-    };
-
     const currentStep = isReadyToPay ? 2 : hasItems ? 1 : 0;
     const steps = [
-        { title: 'ວາງກະຕ່າ', detail: 'ວາງສິນຄ້າໃສ່ຈຸດ RFID' },
+        { title: 'ວາງກະຕ່າ', detail: 'ກະຕ່າວາງສິນຄ້າໃສ່ຈຸດທີ່ກຳນົດ' },
         { title: 'ກວດລາຍການ', detail: 'ເບິ່ງຊື່ ແລະ ຈຳນວນສິນຄ້າ' },
         { title: 'ກົດຊຳລະເງິນ', detail: 'ກົດປຸ່ມໃຫຍ່ເພື່ອຈ່າຍ' },
     ];
@@ -325,18 +339,29 @@ export const POSPage = () => {
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                    <button onClick={() => { playPosClick(); void handleClearCart(); }} aria-label="ລ້າງກະຕ່າ" className="inline-flex h-11 items-center gap-2 rounded-xl border border-red-100 px-3 text-sm font-bold text-red-600 hover:bg-red-50">
-                        <Trash2 className="h-4 w-4" /> ລ້າງ
-                    </button>
                     <Link to="/admin" className="inline-flex h-11 items-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-600 hover:bg-slate-50">Admin</Link>
                 </div>
             </header>
+
+            {!scanStarted && !showQR && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-md">
+                <div role="dialog" aria-modal="true" aria-labelledby="start-rfid-title" className="w-full max-w-md rounded-3xl border border-white/60 bg-white/95 p-8 text-center shadow-2xl shadow-slate-950/30">
+                    <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-purple-50 text-[#7b2db5] ring-8 ring-purple-50/70"><ShoppingBasket className="h-12 w-12" strokeWidth={1.6} /></div>
+                    <p className="mt-6 text-xs font-black tracking-[0.18em] text-[#7b2db5]">4B POS · SELF CHECKOUT</p>
+                    <h2 id="start-rfid-title" className="mt-2 text-3xl font-black text-slate-900">ພ້ອມເລີ່ມລາຍການໃໝ່</h2>
+                    <p className="mt-3 text-base font-semibold leading-7 text-slate-500">ວາງກະຕ່າໄວ້ແລ້ວກົດປຸ່ມເລີ່ມ. ລະບົບຈະອ່ານສິນຄ້າ ແລະ ສະແດງລາຍການໃຫ້ທ່ານ.</p>
+                    <button id="start-rfid-button" autoFocus onClick={() => { playPosClick(); void handleStartScan(); }} disabled={startLoading} className="mt-7 inline-flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-6 text-2xl font-black text-white shadow-lg shadow-emerald-200 transition-colors hover:bg-emerald-700 focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">
+                        {startLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : <Play className="h-7 w-7 fill-current" />}
+                        {startLoading ? 'ກຳລັງອ່ານສິນຄ້າ...' : 'ເລີ່ມອ່ານສິນຄ້າ'}
+                    </button>
+                    <p className="mt-4 text-xs font-bold text-slate-400">{rfid.connected ? 'ລະບົບພ້ອມໃຊ້ງານ' : 'ກຳລັງກຽມລະບົບ...'}</p>
+                </div>
+            </div>}
 
             <main className="flex min-h-0 flex-1 flex-col gap-3 p-4">
                 {DEV_MODE && <section className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 p-3" aria-label="ໂໝດຈຳລອງ dev">
                     <div className="mb-2 flex items-center justify-between gap-3"><p className="text-xs font-black text-amber-800">DEV MODE · ບໍ່ມີ RFID Hub</p><span className="text-[11px] font-semibold text-amber-700">ກົດເພື່ອຈຳລອງການວາງສິນຄ້າ</span></div>
                     <div className="flex flex-wrap gap-2">
-                        {devProducts.map(product => <button key={product._id} onClick={() => { playPosClick(); void simulateDevProduct(product._id); }} disabled={devProductLoading || !rfid.ready} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" />{product.name}</button>)}
+                        {devProducts.map(product => <button key={product._id} onClick={() => { playPosClick(); void simulateDevProduct(product._id); }} disabled={devProductLoading || !scanStarted || !rfid.ready} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" />{product.name}</button>)}
                         {devProducts.length === 0 && <span className="text-xs font-semibold text-amber-800">ຍັງບໍ່ມີສິນຄ້າໃນລະບົບ</span>}
                     </div>
                 </section>}
@@ -367,9 +392,9 @@ export const POSPage = () => {
                                 <p className="text-xs font-semibold text-slate-400">ລາຍການສິນຄ້າ · {items.length} ລາຍການ</p>
                                 <h2 className="mt-1 text-xl font-black">ກວດກ່ອນຊຳລະເງິນ</h2>
                             </div>
-                            <span className={cn("inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-extrabold", isScanning ? "bg-blue-50 text-blue-700" : isReadyToPay ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500")}>
-                                {isScanning ? <Loader2 className="h-4 w-4 animate-spin" /> : isReadyToPay ? <ShieldCheck className="h-4 w-4" /> : <ScanLine className="h-4 w-4" />}
-                                {isScanning ? 'ກຳລັງອ່ານ RFID' : isReadyToPay ? 'ພ້ອມຊຳລະເງິນ' : 'ລໍຖ້າສິນຄ້າ'}
+                            <span className={cn("inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-extrabold", checkoutLocked ? "bg-amber-50 text-amber-700" : isScanning ? "bg-blue-50 text-blue-700" : isReadyToPay ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500")}>
+                                {checkoutLocked ? <CreditCard className="h-4 w-4" /> : isScanning ? <Loader2 className="h-4 w-4 animate-spin" /> : isReadyToPay ? <ShieldCheck className="h-4 w-4" /> : <ScanLine className="h-4 w-4" />}
+                                {checkoutLocked ? 'ຢຸດອ່ານສິນຄ້າ · ກຳລັງຊຳລະເງິນ' : !scanStarted ? 'ກົດ Start ເພື່ອເລີ່ມ' : isScanning ? 'ກຳລັງອ່ານ RFID' : isReadyToPay ? 'ພ້ອມຊຳລະເງິນ' : 'ລໍຖ້າສິນຄ້າ'}
                             </span>
                         </div>
                         {hasItems && <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_64px_116px] gap-3 bg-slate-50 px-4 py-2 text-[11px] font-bold text-slate-400">
@@ -388,7 +413,7 @@ export const POSPage = () => {
                                     <span className="justify-self-center rounded-lg bg-purple-50 px-3 py-1.5 text-base font-black text-[#7b2db5]">{item.count}</span>
                                     <p className="break-words text-right text-sm font-extrabold">{formatCurrency(item.subtotal)}</p>
                                 </div>)}
-                            </div> : <PlacementGraphic isScanning={isScanning} />}
+                            </div> : <PlacementGraphic isScanning={isScanning} started={scanStarted} />}
                         </div>
                     </section>
 
@@ -412,7 +437,7 @@ export const POSPage = () => {
                             </div>
                             <div className="shrink-0 pt-3">
                                 <p className="mb-3 min-h-5 text-center text-xs font-bold text-slate-500" aria-live="polite">
-                                    {payment?.status === 'WAITING' ? 'ລໍຖ້າການຊຳລະ' : canCheckout ? 'ລາຍການຄົບແລ້ວ ກົດປຸ່ມເພື່ອຈ່າຍ' : hasItems ? 'ກະລຸນາລໍຖ້າກວດ RFID ໃຫ້ຄົບ' : 'ວາງສິນຄ້າເພື່ອເລີ່ມຕົ້ນ'}
+                                    {payment?.status === 'WAITING' ? 'ລໍຖ້າການຊຳລະ' : checkoutLocked ? 'ລາຍການຖືກລັອກແລ້ວ · ກຳລັງຊຳລະເງິນ' : canCheckout ? 'ລາຍການຄົບແລ້ວ ກົດປຸ່ມເພື່ອຈ່າຍ' : hasItems ? 'ກະລຸນາລໍຖ້າກວດ RFID ໃຫ້ຄົບ' : scanStarted ? 'ກະຕ່າວາງສິນຄ້າໃສ່ຈຸດທີ່ກຳນົດ' : 'ວາງກະຕ່າ ແລ້ວກົດ Start'}
                                 </p>
                                 <button id="checkout-payment-button" onClick={() => { if (canCheckout) playPosClick(); handleCheckout(); }} disabled={!canCheckout} className={cn("flex h-20 w-full items-center justify-center gap-3 rounded-xl px-3 text-xl font-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-600", canCheckout ? "pos-pay-ready bg-emerald-600 text-white shadow-lg shadow-emerald-100 hover:bg-emerald-700" : "cursor-not-allowed bg-slate-100 text-slate-400")}>
                                     {isProcessing ? <Loader2 className="h-6 w-6 animate-spin" /> : <CreditCard className="h-6 w-6" />}
@@ -421,16 +446,13 @@ export const POSPage = () => {
                                 </button>
                             </div>
                         </div>
-                        <button onClick={() => { playPosClick(); void handleClearCart(); }} className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-50">
-                            <RotateCcw className="h-4 w-4" /> ເລີ່ມໃໝ່
-                        </button>
                     </aside>
                 </div>
             </main>
             <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-2 text-[11px] font-semibold text-slate-400">
                 <p role="status" className="min-w-0 truncate" title={rfid.error || undefined}>
                     <span className={cn("mr-2 inline-block h-1.5 w-1.5 rounded-full", rfid.ready ? "bg-green-500" : "bg-amber-500")} />
-                    {rfid.error || (!rfid.ready ? 'ກຳລັງຕຽມ RFID session...' : rfid.connected ? 'Server ເຊື່ອມຕໍ່ແລ້ວ' : 'Realtime ຂາດການເຊື່ອມຕໍ່ ກຳລັງດຶງຂໍ້ມູນຈາກ server')}
+                    {rfid.error || (checkoutLocked ? 'ຢຸດອ່ານສິນຄ້າ · ກຳລັງ checkout' : !scanStarted ? 'ວາງກະຕ່າ ແລ້ວກົດ Start' : !rfid.ready ? 'ກຳລັງຕຽມ RFID session...' : rfid.connected ? 'Server ເຊື່ອມຕໍ່ແລ້ວ' : 'Realtime ຂາດການເຊື່ອມຕໍ່ ກຳລັງດຶງຂໍ້ມູນຈາກ server')}
                 </p>
                 <span className="shrink-0">{deviceId} · RFID: {scannedTagIds.length} Tag</span>
             </footer>
@@ -553,7 +575,7 @@ export const POSPage = () => {
     );
 };
 
-function PlacementGraphic({ isScanning }: { isScanning: boolean }) {
+function PlacementGraphic({ isScanning, started }: { isScanning: boolean; started: boolean }) {
     return (
         <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 px-6 py-5 text-center">
             <div id="rfid-placement-zone" className={cn("relative flex h-40 w-40 shrink-0 items-center justify-center rounded-full border border-dashed border-purple-300 bg-purple-50/50", isScanning && "motion-safe:animate-pulse")}>
@@ -562,8 +584,8 @@ function PlacementGraphic({ isScanning }: { isScanning: boolean }) {
                 </div>
                 <span className="absolute -right-1 top-6 rounded-full bg-[#7b2db5] p-2 text-white"><ScanLine className="h-4 w-4" /></span>
             </div>
-            <div><h2 className="text-xl font-black">{isScanning ? 'ກຳລັງອ່ານກະຕ່າ...' : 'ວາງສິນຄ້າໃສ່ຈຸດ RFID'}</h2>
-                <p className="mt-2 max-w-sm text-sm leading-6 text-slate-400">{isScanning ? 'ກະລຸນາຢ່າຍົກກະຕ່າອອກ ລະບົບກຳລັງກວດ RFID' : 'ລາຍການສິນຄ້າຈະຂຶ້ນອັດຕະໂນມັດ ຫຼັງກວດແທັກຄົບ'}</p>
+            <div><h2 className="text-xl font-black">{!started ? 'ວາງກະຕ່າ ແລ້ວກົດ Start' : isScanning ? 'ກຳລັງອ່ານກະຕ່າ...' : 'ກະຕ່າວາງສິນຄ້າໃສ່ຈຸດທີ່ກຳນົດ'}</h2>
+                <p className="mt-2 max-w-sm text-sm leading-6 text-slate-400">{!started ? 'ວາງກະຕ່າໃສ່ hub ແລ້ວກົດ Start ເພື່ອອ່ານສິນຄ້າ' : isScanning ? 'ກະລຸນາຢ່າຍົກກະຕ່າອອກ ລະບົບກຳລັງກວດ RFID' : 'ລາຍການສິນຄ້າຈະຂຶ້ນອັດຕະໂນມັດ ຫຼັງກວດແທັກຄົບ'}</p>
             </div>
         </div>
     );

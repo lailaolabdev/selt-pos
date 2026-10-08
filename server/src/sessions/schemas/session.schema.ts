@@ -6,6 +6,7 @@ export enum DeviceMode {
   ADD = 'ADD',
   CHECK = 'CHECK',
   CHECKOUT = 'CHECKOUT',
+  PAYMENT = 'PAYMENT',
 }
 
 @Schema({ timestamps: true })

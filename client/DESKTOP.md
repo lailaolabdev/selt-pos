@@ -44,10 +44,10 @@ React's `VITE_*` variables are read at build time. Electron's `POS_*` variables 
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VITE_API_URL` | `http://localhost:3000` | React API |
-| `VITE_SOCKET_URL` | `http://localhost:3000` | React Socket.IO |
+| `VITE_API_URL` | `https://api-seltpos.soudev.site` | React API |
+| `VITE_SOCKET_URL` | `https://api-seltpos.soudev.site` | React Socket.IO |
 | `VITE_DEVICE_ID` | `RPi-POS-01` | React device |
-| `POS_API_URL` | `http://localhost:3000` | Electron receipt/status API |
+| `POS_API_URL` | `https://api-seltpos.soudev.site` | Electron receipt/status API |
 | `POS_DEVICE_ID` | `RPi-POS-01` | Restrict receipts to this device |
 | `POS_KIOSK` | `1` in production, `0` in development | Fullscreen/kiosk |
 | `POS_PAYMENT_ORIGINS` | `https://payment-link-sandbox.netlify.app,https://payment-gateway.phajay.co` | Comma-separated exact HTTPS origins allowed in payment window |

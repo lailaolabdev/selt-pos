@@ -18,6 +18,7 @@ var DeviceMode;
     DeviceMode["ADD"] = "ADD";
     DeviceMode["CHECK"] = "CHECK";
     DeviceMode["CHECKOUT"] = "CHECKOUT";
+    DeviceMode["PAYMENT"] = "PAYMENT";
 })(DeviceMode || (exports.DeviceMode = DeviceMode = {}));
 let DeviceSession = class DeviceSession extends mongoose_2.Document {
     deviceId;

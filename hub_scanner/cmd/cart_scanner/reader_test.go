@@ -82,6 +82,11 @@ func TestReaderForwardsCompleteTagToServer(t *testing.T) {
 		Status string   `json:"status"`
 	}
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"mode":"CHECKOUT"}`))
+			return
+		}
 		var payload struct {
 			TagIDs []string `json:"tagIds"`
 			Status string   `json:"status"`

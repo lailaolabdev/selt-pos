@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const net = require('node:net');
 const { spawn } = require('node:child_process');
 
 function rasterCommand(bitmap, width, height) {
@@ -25,8 +26,56 @@ function rasterCommand(bitmap, width, height) {
   ]);
 }
 
-async function printRaster({ bitmap, width, height, portPath = 'COM1', baudRate = 9600 }) {
-  if (process.platform !== 'win32') throw new Error('Raw COM printer requires Windows');
+function runPowerShell(script, args = []) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, ...args], { windowsHide: true });
+    let output = '';
+    let error = '';
+    child.stdout.on('data', chunk => { output += chunk.toString(); });
+    child.stderr.on('data', chunk => { error += chunk.toString(); });
+    child.on('error', reject);
+    child.on('close', code => code === 0 ? resolve(output) : reject(new Error(error.trim() || `PowerShell exited with code ${code}`)));
+  });
+}
+
+async function listSerialPorts() {
+  if (process.platform !== 'win32') return [];
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$ports = @(Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "\\(COM\\d+\\)" } | ForEach-Object {',
+    '  $match = [regex]::Match($_.Name, "\\(COM\\d+\\)")',
+    '  [pscustomobject]@{ path = $match.Value.TrimStart("(").TrimEnd(")"); displayName = $_.Name }',
+    '})',
+    '$ports | ConvertTo-Json -Compress',
+  ].join('; ');
+  try {
+    const output = (await runPowerShell(script)).trim();
+    if (!output) return [];
+    const parsed = JSON.parse(output);
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter(item => item?.path).map(item => ({ path: item.path, displayName: item.displayName || item.path }));
+  } catch {
+    return [];
+  }
+}
+
+function writeNetwork(data, printerIp, printerPort = 9100) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: printerIp, port: Number(printerPort) });
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      error ? reject(error) : resolve();
+    };
+    socket.setTimeout(10000, () => finish(new Error(`Network printer timeout: ${printerIp}:${printerPort}`)));
+    socket.once('error', finish);
+    socket.once('connect', () => socket.end(data, () => finish()));
+  });
+}
+
+async function printRaster({ bitmap, width, height, connection = 'serial', portPath = 'COM1', baudRate = 9600, printerIp, printerPort = 9100 }) {
+  if (process.platform !== 'win32') throw new Error('Raw printer requires Windows');
   const file = path.join(os.tmpdir(), `4b-pos-print-${crypto.randomUUID()}.bin`);
   const data = Buffer.concat([
     Buffer.from([0x1b, 0x40]),
@@ -34,6 +83,11 @@ async function printRaster({ bitmap, width, height, portPath = 'COM1', baudRate 
     Buffer.from([0x1b, 0x64, 0x03]),
     Buffer.from([0x1d, 0x56, 0x00]),
   ]);
+  if (connection === 'network') {
+    if (!printerIp || !net.isIP(printerIp)) throw new Error('Enter a valid printer IP address');
+    await writeNetwork(data, printerIp, printerPort);
+    return;
+  }
   await fs.writeFile(file, data);
   try {
     const script = [
@@ -47,16 +101,10 @@ async function printRaster({ bitmap, width, height, portPath = 'COM1', baudRate 
       'Start-Sleep -Milliseconds 250',
       '$port.Close()',
     ].join('; ');
-    await new Promise((resolve, reject) => {
-      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, portPath, String(baudRate), file], { windowsHide: true });
-      let error = '';
-      child.stderr.on('data', chunk => { error += chunk.toString(); });
-      child.on('error', reject);
-      child.on('close', code => code === 0 ? resolve() : reject(new Error(error.trim() || `COM printer exited with code ${code}`)));
-    });
+    await runPowerShell(script, [portPath, String(baudRate), file]);
   } finally {
     await fs.rm(file, { force: true });
   }
 }
 
-module.exports = { printRaster };
+module.exports = { listSerialPorts, printRaster };

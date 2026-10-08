@@ -5,7 +5,20 @@ export declare class TagsController {
     private readonly tagsService;
     private readonly sessionsService;
     constructor(tagsService: TagsService, sessionsService: SessionsService);
-    capture(data: CaptureTagsDto): Promise<Record<string, unknown>>;
+    capture(data: CaptureTagsDto): Promise<Record<string, unknown> | {
+        transactionId: string;
+        items: {
+            name: string;
+            imageUrl?: string;
+            count: number;
+            subtotal: number;
+        }[];
+        totalPrice: number;
+        tagIds: string[];
+        scannedTagIds: string[];
+        unknownTagIds: string[];
+        unavailableTagIds: string[];
+    }>;
     captureDevProduct(data: {
         deviceId: string;
         productId: string;

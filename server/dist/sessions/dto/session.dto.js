@@ -29,7 +29,7 @@ __decorate([
     (0, swagger_1.ApiProperty)({
         enum: session_schema_1.DeviceMode,
         example: session_schema_1.DeviceMode.CHECKOUT,
-        description: 'IDLE, ADD, CHECK, CHECKOUT. capture endpoint ຈະປະມວນຜົນຕາມ mode ນີ້.',
+        description: 'IDLE, ADD, CHECK, CHECKOUT, PAYMENT. PAYMENT ຈະ freeze basket ໄວ້ລະຫວ່າງຊຳລະເງິນ.',
     }),
     __metadata("design:type", String)
 ], SetModeDto.prototype, "mode", void 0);

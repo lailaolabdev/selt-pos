@@ -43,8 +43,12 @@ let PaymentsController = class PaymentsController {
     getReceipt(paymentId) {
         return this.paymentsService.getReceipt(paymentId);
     }
-    handleWebhook(payload) {
-        return this.paymentsService.handlePhaJayWebhook(payload);
+    handleWebhook(payload, headers, request) {
+        return this.paymentsService.handlePhaJayWebhook(payload, {
+            rawBody: request.rawBody,
+            headers,
+            ip: request.ip,
+        });
     }
 };
 exports.PaymentsController = PaymentsController;
@@ -155,8 +159,10 @@ __decorate([
         description: 'Configure this URL in PhaJay portal. On PAYMENT_COMPLETED it marks RFID tags as sold and clears the POS basket.',
     }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Headers)()),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object, Object]),
     __metadata("design:returntype", void 0)
 ], PaymentsController.prototype, "handleWebhook", null);
 exports.PaymentsController = PaymentsController = __decorate([

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -20,10 +21,12 @@ var (
 	lastAnyTagTime time.Time
 	lastNewTagTime time.Time
 	isStable       bool
-	serverURL      = "http://localhost:3000/tags/capture"
-	deviceID       = "RPi-POS-01"
-	captureClient  = &http.Client{Timeout: 5 * time.Second}
-	port           serial.Port
+	// serverURL      = "https://api-seltpos.soudev.site/tags/capture"
+	serverURL     = "http://localhost:3000/tags/capture"
+	deviceID      = "RPi-POS-01"
+	sessionMode   string
+	captureClient = &http.Client{Timeout: 5 * time.Second}
+	port          serial.Port
 	// This reader is configured for 9600 baud. Keep the default fixed so the
 	// driver is never reconfigured while a basket is being read. Set
 	// RFID_BAUD explicitly when using a reader with another speed.
@@ -277,7 +280,10 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 	realtimeUpdates := len(portName) > 0
 	lastScanningIDs := []string{}
 	lastTagChangeAt := time.Time{}
+	lastModePoll := time.Time{}
 	const scanUpdateDebounce = 350 * time.Millisecond
+	rawLogging := strings.ToLower(strings.TrimSpace(os.Getenv("RFID_RAW_LOG")))
+	showRawData := rawLogging != "0" && rawLogging != "false" && rawLogging != "off" && rawLogging != "no"
 
 	for {
 		n, err := port.Read(buf)
@@ -288,9 +294,29 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 		}
 
 		nowRead := time.Now()
+		if lastModePoll.IsZero() || nowRead.Sub(lastModePoll) >= time.Second {
+			previousMode := sessionMode
+			refreshSessionMode()
+			if previousMode != sessionMode && sessionMode != "" {
+				// A POS Start/Stop creates a new scan session. Do not carry tags
+				// observed before that button press into the next basket.
+				tagLastSeen = make(map[string]time.Time)
+				batch = scanBatch{}
+				lastScanningIDs = nil
+				lastTagChangeAt = time.Time{}
+				needsSync = false
+				fmt.Printf("🧹 RFID local scan state reset for POS mode %s\n", sessionMode)
+			}
+			lastModePoll = nowRead
+		}
 		if n > 0 {
 			lastAnyTagTime = nowRead
 			bytesSinceCheck += n
+			if showRawData {
+				// Do not truncate or sanitize this line: it is the exact complete
+				// packet returned by the reader for this serial read.
+				fmt.Printf("🧾 RAW TAG DATA: bytes=%d | HEX: % X | TEXT: %q\n", n, buf[:n], buf[:n])
+			}
 			if !detection.confirmed && nowRead.Sub(lastRawLog) >= time.Second {
 				preview := buf[:n]
 				if len(preview) > 32 {
@@ -414,6 +440,14 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 }
 
 func sendCaptureToServer(tagIds []string, status string) bool {
+	if sessionMode == "IDLE" {
+		fmt.Println("⏸️  RFID capture paused: waiting for POS Start (mode=IDLE)")
+		return true
+	}
+	if sessionMode == "PAYMENT" {
+		fmt.Println("🔒 RFID capture paused: checkout basket is locked for payment (mode=PAYMENT)")
+		return true
+	}
 	payload := map[string]interface{}{
 		"deviceId": deviceID,
 		"tagIds":   tagIds,
@@ -444,4 +478,35 @@ func sendCaptureToServer(tagIds []string, status string) bool {
 		fmt.Println("⚠️ Could not read server response:", readErr)
 	}
 	return resp.StatusCode >= 200 && resp.StatusCode < 300 && readErr == nil
+}
+
+func refreshSessionMode() {
+	baseURL := strings.TrimSuffix(serverURL, "/tags/capture")
+	snapshotURL := strings.TrimRight(baseURL, "/") + "/session/" + url.PathEscape(deviceID) + "/snapshot"
+	resp, err := captureClient.Get(snapshotURL)
+	if err != nil {
+		fmt.Println("⚠️  Could not read POS RFID session mode:", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		fmt.Printf("⚠️  POS RFID session mode rejected: %s\n", resp.Status)
+		return
+	}
+	var snapshot struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&snapshot); err != nil || snapshot.Mode == "" {
+		fmt.Println("⚠️  Invalid POS RFID session mode response")
+		return
+	}
+	if snapshot.Mode != sessionMode {
+		previous := sessionMode
+		sessionMode = snapshot.Mode
+		if previous == "" {
+			fmt.Printf("📡 POS RFID mode: %s\n", sessionMode)
+		} else {
+			fmt.Printf("🔄 POS RFID mode changed: %s -> %s\n", previous, sessionMode)
+		}
+	}
 }

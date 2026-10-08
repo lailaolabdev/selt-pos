@@ -262,17 +262,17 @@ PHAJAY_QR_BANK=bcel
 PHAJAY_QR_PATH=
 PHAJAY_SECRET_KEY=
 PHAJAY_TEST_KEY=
-# Production QR requires the approved merchant secret key above.
+# Use PHAJAY_SECRET_KEY for production, or PHAJAY_TEST_KEY with PHAJAY_PAYMENT_MODE=sandbox.
 ```
 
-- POS now calls `POST /payments/phajay/qr` and displays a locally rendered QR inside the 1024×768 payment screen. No external window is opened. The server sends `amount`, ASCII `description`, unique `orderNo`, and tags to the documented `/v1/api/payment/generate-{bank}-qr` endpoint with the `secretKey` header. Production QR requires `PHAJAY_SECRET_KEY`; it never falls back to `PHAJAY_TEST_KEY`. Keys stay on the server. The POS opens payment methods first: Online Payment → select bank → Generate QR. PhaJay BIO Payment is a disabled placeholder for future integration.
-- `PHAJAY_PAYMENT_MODE` only controls the legacy Payment Link endpoint, not the embedded QR screen.
-- `PHAJAY_PAYMENT_MODE=sandbox` uses `/v1/api/test/payment/get-payment-link`.
+- POS now calls `POST /payments/phajay/qr` and displays a locally rendered QR inside the 1024×768 payment screen. No external window is opened. The server sends `amount`, ASCII `description`, unique `orderNo`, and tags to the documented bank endpoint with the `secretKey` header. Production QR uses `/v1/api/payment/generate-{bank}-qr` and `PHAJAY_SECRET_KEY`; sandbox QR uses `/v1/api/test/payment/generate-{bank}-qr` and `PHAJAY_TEST_KEY`. Keys stay on the server. The POS opens payment methods first: Online Payment → select bank → Generate QR. PhaJay BIO Payment is a disabled placeholder for future integration.
+- `PHAJAY_PAYMENT_MODE=sandbox` uses PhaJay's test QR and Payment Link endpoints.
 - `PHAJAY_PAYMENT_MODE=production` uses `/v1/api/link/payment-link`.
 - `PHAJAY_PAYMENT_LINK_PATH` is optional and only needed when PhaJay gives a custom path.
 - `PHAJAY_QR_BANK` sets the default for older callers without a `bank` field. The POS sends its selected `bank`: `bcel`, `jdb`, `ldb`, `ib`, `stb`, or `m-money`.
-- Embedded QR always uses `https://payment-gateway.phajay.co/v1/api/payment/generate-{bank}-qr`. `PHAJAY_QR_PATH` and `PHAJAY_BASE_URL` overrides do not change this production QR route; base/link path settings apply to legacy Payment Link only.
+- Embedded QR selects the production or sandbox endpoint from `PHAJAY_PAYMENT_MODE`. `PHAJAY_QR_PATH` may override the QR path and can contain `{bank}`.
 - Configure PhaJay portal webhook to `https://YOUR_API_DOMAIN/payments/phajay/webhook`.
+- Server logs every incoming PhaJay webhook with the received headers (sensitive auth headers are filtered), parsed `payload`, raw body, lookup keys, amount comparison, and final processing result. Check with `docker logs -f 4b-easy-pos-server | grep PhaJayWebhook`.
 - BCEL QR must be scanned with BCEL One; other banks cannot scan this QR.
 - The POS checks local status every 3 seconds and listens for `paymentUpdate`; it restores the same QR after reload. Closing the QR screen hides it and keeps the payment active; use the Show QR button to reopen it.
 - Payment is confirmed only after a matching PhaJay callback with `PAYMENT_COMPLETED` and the exact `txnAmount`. This marks tags sold and clears the basket; Desktop then queues the receipt. Polling local status cannot replace a provider callback.

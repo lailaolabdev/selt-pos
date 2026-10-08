@@ -1,4 +1,5 @@
 import { PrinterPage } from './pages/PrinterPage';
+import { RfidPage } from './pages/RfidPage';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -32,6 +33,7 @@ function App() {
               <Route path="products" element={<ProductsPage />} />
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="printer" element={<PrinterPage />} />
+              <Route path="rfid" element={<RfidPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

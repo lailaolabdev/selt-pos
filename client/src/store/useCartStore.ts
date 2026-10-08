@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type DeviceMode = 'IDLE' | 'ADD' | 'CHECK' | 'CHECKOUT';
+export type DeviceMode = 'IDLE' | 'ADD' | 'CHECK' | 'CHECKOUT' | 'PAYMENT';
 
 interface CartItem {
   name: string;
@@ -81,6 +81,7 @@ export const useCartStore = create<CartState>((set) => ({
     scannedTagIds: [],
     unknownTagIds: [],
     unavailableTagIds: [],
+    scannerStatus: 'IDLE',
     isScanning: false,
     basketId: undefined,
     basketKey: undefined,

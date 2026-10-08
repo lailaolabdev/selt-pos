@@ -1,11 +1,12 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Package, ClipboardList, Settings, LogOut, Home } from 'lucide-react';
+import { Package, ClipboardList, Settings, LogOut, Home, Radio } from 'lucide-react';
 import { clearAdminSession, getAdminSession } from '@/lib/auth';
 import { printerText } from '@/lib/desktop';
 import { cn } from '@/lib/utils';
 
 const navItems = [
     { icon: Settings, label: printerText.title, path: '/admin/printer' },
+    { icon: Radio, label: 'ຄວບຄຸມ RFID', path: '/admin/rfid' },
     { icon: Package, label: 'ຈັດການສິນຄ້າ', path: '/admin/products' },
     { icon: ClipboardList, label: 'ສາງສິນຄ້າ', path: '/admin/inventory' },
 ];

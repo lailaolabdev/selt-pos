@@ -117,7 +117,15 @@ export class PaymentsController {
     description:
       'Configure this URL in PhaJay portal. On PAYMENT_COMPLETED it marks RFID tags as sold and clears the POS basket.',
   })
-  handleWebhook(@Body() payload: Record<string, any>) {
-    return this.paymentsService.handlePhaJayWebhook(payload);
+  handleWebhook(
+    @Body() payload: Record<string, any>,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Req() request: Request & { rawBody?: Buffer },
+  ) {
+    return this.paymentsService.handlePhaJayWebhook(payload, {
+      rawBody: request.rawBody,
+      headers,
+      ip: request.ip,
+    });
   }
 }

@@ -3,7 +3,8 @@ export declare enum DeviceMode {
     IDLE = "IDLE",
     ADD = "ADD",
     CHECK = "CHECK",
-    CHECKOUT = "CHECKOUT"
+    CHECKOUT = "CHECKOUT",
+    PAYMENT = "PAYMENT"
 }
 export declare class DeviceSession extends Document {
     deviceId: string;

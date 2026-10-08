@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var PaymentsService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PaymentsService = void 0;
 const common_1 = require("@nestjs/common");
@@ -23,11 +24,12 @@ const sessions_service_1 = require("../sessions/sessions.service");
 const sessions_gateway_1 = require("../sessions/sessions.gateway");
 const tags_service_1 = require("../tags/tags.service");
 const payment_transaction_schema_1 = require("./schemas/payment-transaction.schema");
-let PaymentsService = class PaymentsService {
+let PaymentsService = PaymentsService_1 = class PaymentsService {
     paymentModel;
     sessionsService;
     gateway;
     tagsService;
+    logger = new common_1.Logger(PaymentsService_1.name);
     constructor(paymentModel, sessionsService, gateway, tagsService) {
         this.paymentModel = paymentModel;
         this.sessionsService = sessionsService;
@@ -255,13 +257,25 @@ let PaymentsService = class PaymentsService {
             })),
         };
     }
-    async handlePhaJayWebhook(payload) {
+    async handlePhaJayWebhook(payload, meta) {
+        const receivedAt = new Date().toISOString();
+        const safeHeaders = Object.fromEntries(Object.entries(meta?.headers || {})
+            .filter(([name]) => !['authorization', 'cookie', 'x-api-key'].includes(name.toLowerCase()))
+            .map(([name, value]) => [name, value]));
+        this.logger.log(`[PhaJayWebhook] RECEIVED ${JSON.stringify({
+            receivedAt,
+            ip: meta?.ip,
+            headers: safeHeaders,
+            payload,
+            rawBody: meta?.rawBody?.toString('utf8'),
+        })}`);
         const orderNo = this.toOptionalString(payload.orderNo);
         const linkCode = this.toOptionalString(payload.linkCode);
         const providerTransactionId = this.toOptionalString(payload.transactionId);
         const providerStatus = this.toOptionalString(payload.status);
         const payment = await this.findPaymentForWebhook(orderNo, linkCode, providerTransactionId);
         if (!payment) {
+            this.logger.warn(`[PhaJayWebhook] PAYMENT_NOT_FOUND ${JSON.stringify({ orderNo, linkCode, transactionId: providerTransactionId, status: providerStatus })}`);
             return { message: 'PAYMENT_NOT_FOUND' };
         }
         payment.webhookPayloads = [...(payment.webhookPayloads || []), payload];
@@ -274,6 +288,7 @@ let PaymentsService = class PaymentsService {
             payment.status !== payment_transaction_schema_1.PaymentStatus.PAID) {
             const paidAmount = Number(payload.txnAmount ?? payload.amount ?? 0);
             if (!Number.isFinite(paidAmount) || paidAmount !== payment.amount) {
+                this.logger.warn(`[PhaJayWebhook] AMOUNT_MISMATCH ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, expected: payment.amount, received: paidAmount, payload })}`);
                 payment.status = payment_transaction_schema_1.PaymentStatus.FAILED;
                 await payment.save();
                 this.emitPaymentUpdate(payment);
@@ -281,6 +296,7 @@ let PaymentsService = class PaymentsService {
             }
             payment.status = payment_transaction_schema_1.PaymentStatus.PAID;
             payment.paidAt = new Date();
+            this.logger.log(`[PhaJayWebhook] PAYMENT_COMPLETED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, amount: paidAmount, transactionId: providerTransactionId })}`);
             await this.sessionsService.clearSession(payment.deviceId);
         }
         else if (['PAYMENT_FAILED', 'PAYMENT_CANCELLED', 'FAILED', 'CANCELLED'].includes(providerStatus || '') &&
@@ -289,6 +305,7 @@ let PaymentsService = class PaymentsService {
         }
         await payment.save();
         this.emitPaymentUpdate(payment);
+        this.logger.log(`[PhaJayWebhook] PROCESSED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerStatus, localStatus: payment.status })}`);
         return { message: 'OK' };
     }
     async handleBioWebhook(payload, rawBody, signature) {
@@ -389,11 +406,23 @@ let PaymentsService = class PaymentsService {
         return (data && typeof data === 'object' ? data : {});
     }
     async requestPhaJayQr(body) {
-        const secretKey = process.env.PHAJAY_SECRET_KEY?.trim();
+        const mode = (process.env.PHAJAY_PAYMENT_MODE || 'production').trim().toLowerCase();
+        const sandbox = mode === 'sandbox' || mode === 'test';
+        const secretKey = (sandbox
+            ? process.env.PHAJAY_TEST_KEY || process.env.PHAJAY_SECRET_KEY
+            : process.env.PHAJAY_SECRET_KEY)?.trim();
         if (!secretKey) {
-            throw new common_1.ServiceUnavailableException('PhaJay production secret key is not configured');
+            throw new common_1.ServiceUnavailableException(sandbox
+                ? 'PhaJay test key is not configured'
+                : 'PhaJay production secret key is not configured');
         }
-        const url = `https://payment-gateway.phajay.co/v1/api/payment/generate-${body.bank}-qr`;
+        const baseUrl = (process.env.PHAJAY_BASE_URL || 'https://payment-gateway.phajay.co').replace(/\/$/, '');
+        const defaultPath = `/v1/api/${sandbox ? 'test/' : ''}payment/generate-${body.bank}-qr`;
+        const configuredPath = process.env.PHAJAY_QR_PATH?.trim();
+        const path = configuredPath
+            ? configuredPath.replace('{bank}', body.bank)
+            : defaultPath;
+        const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
         const { bank, ...payload } = body;
         void bank;
         const response = await fetch(url, {
@@ -478,7 +507,7 @@ let PaymentsService = class PaymentsService {
     }
 };
 exports.PaymentsService = PaymentsService;
-exports.PaymentsService = PaymentsService = __decorate([
+exports.PaymentsService = PaymentsService = PaymentsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(payment_transaction_schema_1.PaymentTransaction.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,

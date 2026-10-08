@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { getAdminToken } from './auth';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://api-seltpos.soudev.site';
 
 export const api = axios.create({
   baseURL: API_URL,

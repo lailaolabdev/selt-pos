@@ -18,6 +18,7 @@ process.env.JSON_DB_PATH = file;
 process.env.ADMIN_USERNAME = 'test-admin';
 process.env.ADMIN_PASSWORD = 'test-password';
 process.env.PHAJAY_SECRET_KEY = 'fake-test-key';
+process.env.PHAJAY_TEST_KEY = 'fake-test-key';
 process.env.PHAJAY_PAYMENT_MODE = 'sandbox';
 process.env.MONGO_URI = 'mongodb://127.0.0.1:1/unreachable';
 // Load storage configuration after setting the isolated test environment.
@@ -272,11 +273,11 @@ describe('JSON server API (no MongoDB, no real payment)', () => {
   });
 
   it.each(['bcel', 'jdb', 'ldb', 'ib', 'stb', 'm-money'])(
-    'uses the selected production bank %s even with sandbox path overrides',
+    'uses the selected sandbox bank %s and sandbox endpoint',
     async (bank) => {
       const previousPath = process.env.PHAJAY_QR_PATH;
       const previousBase = process.env.PHAJAY_BASE_URL;
-      process.env.PHAJAY_QR_PATH = '/v1/api/test/payment/generate-bcel-qr';
+      process.env.PHAJAY_QR_PATH = '/v1/api/test/payment/generate-{bank}-qr';
       process.env.PHAJAY_BASE_URL = 'https://sandbox.invalid';
       const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
         new Response(
@@ -294,7 +295,7 @@ describe('JSON server API (no MongoDB, no real payment)', () => {
           .expect(201);
         expect(body<{ bank: string }>(payment).bank).toBe(bank);
         expect(fetchSpy).toHaveBeenCalledWith(
-          `https://payment-gateway.phajay.co/v1/api/payment/generate-${bank}-qr`,
+          `https://sandbox.invalid/v1/api/test/payment/generate-${bank}-qr`,
           expect.objectContaining({
             headers: expect.objectContaining({
               secretKey: 'fake-test-key',

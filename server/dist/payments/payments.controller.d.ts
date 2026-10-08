@@ -68,7 +68,9 @@ export declare class PaymentsController {
             subtotal: number;
         }[];
     }>;
-    handleWebhook(payload: Record<string, any>): Promise<{
+    handleWebhook(payload: Record<string, any>, headers: Record<string, string | string[] | undefined>, request: Request & {
+        rawBody?: Buffer;
+    }): Promise<{
         message: string;
     }>;
 }

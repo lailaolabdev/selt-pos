@@ -1,7 +1,7 @@
 {
-  "name": "4b-easy-pos",
+  "name": "4b-pos-business",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5173",
@@ -50,6 +50,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "png-to-ico": "^3.0.2",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "typescript": "~5.9.3",
@@ -57,10 +58,11 @@
     "vite": "^7.3.1"
   },
   "main": "electron/main.cjs",
-  "description": "RFID self-checkout kiosk with local receipt printing",
+  "description": "4B POS Business kiosk with RFID checkout and local receipt printing",
   "build": {
-    "appId": "la.4b.easypos",
-    "productName": "4B-easy-POS",
+    "appId": "la.4b.posbusiness",
+    "productName": "4B POS Business",
+    "icon": "public/logo.ico",
     "directories": {
       "output": "release"
     },
@@ -70,6 +72,13 @@
       "!electron/**/*.test.cjs",
       "public/fonts/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/bin",
+        "to": "rfid",
+        "filter": ["cart_scanner.exe", "cart_scanner"]
+      }
     ],
     "mac": {
       "target": [
@@ -87,7 +96,11 @@
       "allowElevation": true,
       "allowToChangeInstallationDirectory": false,
       "deleteAppDataOnUninstall": false,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "4B POS Business",
+      "uninstallDisplayName": "Uninstall 4B POS Business"
     },
     "linux": {
       "target": [

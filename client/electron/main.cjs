@@ -4,9 +4,10 @@ const path = require('node:path');
 const http = require('node:http');
 const { PrintQueue } = require('./queue.cjs');
 const { receiptHtml } = require('./receipt.cjs');
-const { printRaster } = require('./raw-printer.cjs');
-const apiUrl = (process.env.POS_API_URL || 'http://localhost:3000').replace(/\/$/, '');
-let mainWindow, paymentWindow, server, queue, origin;
+const { listSerialPorts, printRaster } = require('./raw-printer.cjs');
+const { RfidScanner } = require('./rfid-scanner.cjs');
+const apiUrl = (process.env.POS_API_URL || 'https://api-seltpos.soudev.site').replace(/\/$/, '');
+let mainWindow, paymentWindow, server, queue, rfidScanner, origin;
 const idPattern = /^[a-f0-9]{24}$/i;
 const securePrefs = { nodeIntegration: false, contextIsolation: true, sandbox: true };
 async function paymentData(id, suffix) {
@@ -59,8 +60,11 @@ async function printHtml(html, settings) {
         bitmap: image.getBitmap(),
         width: size.width,
         height: size.height,
-        portPath: process.env.POS_PRINTER_PORT || 'COM1',
-        baudRate: Number(process.env.POS_PRINTER_BAUD || 9600),
+        connection: settings.connection || 'serial',
+        portPath: settings.deviceName || process.env.POS_PRINTER_PORT || 'COM1',
+        baudRate: Number(settings.baudRate || process.env.POS_PRINTER_BAUD || 9600),
+        printerIp: settings.printerIp || process.env.POS_PRINTER_IP,
+        printerPort: Number(settings.printerPort || process.env.POS_PRINTER_TCP_PORT || 9100),
       });
       return 'submitted';
     } finally { win.destroy(); }
@@ -82,7 +86,7 @@ async function printHtml(html, settings) {
 }
 async function createWindow() {
   const url = process.env.POS_DEV_URL || await serve(); origin = new URL(url).origin;
-  mainWindow = new BrowserWindow({ width: 1024, height: 768, kiosk: process.env.POS_KIOSK !== '0', fullscreen: process.env.POS_KIOSK !== '0', autoHideMenuBar: true,
+  mainWindow = new BrowserWindow({ width: 1024, height: 768, icon: path.join(__dirname, '../dist/logo.png'), kiosk: process.env.POS_KIOSK !== '0', fullscreen: process.env.POS_KIOSK !== '0', autoHideMenuBar: true,
     webPreferences: { ...securePrefs, preload: path.join(__dirname, 'preload.cjs') } });
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -97,16 +101,37 @@ async function createWindow() {
     }, print: printHtml,
   };
   queue = new PrintQueue(path.join(app.getPath('userData'), 'print-queue.json'), printer);
+  rfidScanner = new RfidScanner({
+    stateFile: path.join(app.getPath('userData'), 'rfid-scanner.json'),
+    apiUrl,
+    deviceId: process.env.POS_DEVICE_ID || 'RPi-POS-01',
+    onEvent: (type, data) => mainWindow?.webContents.send('rfid:event', { type, data }),
+  });
   handle('printer:list', async () => {
     const printers = (await mainWindow.webContents.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: p.isDefault, status: p.status }));
-    if (process.env.POS_PRINTER_PORT || process.platform === 'win32') printers.unshift({ name: 'COM1', displayName: 'POS-80 USB · COM1 · 9600 RTS', isDefault: false, status: 0 });
+    const serialPorts = await listSerialPorts();
+    if (queue.state.settings.adapter === 'raw' && (queue.state.settings.connection || 'serial') === 'serial' && serialPorts.length && !serialPorts.some(port => port.path === queue.state.settings.deviceName)) {
+      queue.state.settings.deviceName = serialPorts[0].path;
+      queue.save();
+    }
+    for (const port of serialPorts.reverse()) printers.unshift({ name: port.path, displayName: `${port.displayName} · USB raw ESC/POS`, isDefault: false, status: 0 });
     return printers;
   });
   handle('printer:state', () => ({ settings: queue.state.settings, jobs: queue.state.jobs.slice(-100).reverse() }));
   handle('printer:configure', settings => queue.serial(async () => {
     if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'raw', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
     if (settings.adapter === 'system' && !(await mainWindow.webContents.getPrintersAsync()).some(p => p.name === settings.deviceName)) throw new Error('Unknown printer');
-    queue.state.settings = { deviceName: settings.deviceName, paperWidth: settings.paperWidth, adapter: settings.adapter }; queue.save(); return queue.state.settings;
+    const connection = settings.connection === 'network' ? 'network' : 'serial';
+    if (settings.adapter === 'raw' && connection === 'network' && (!settings.printerIp || !/^\d{1,3}(\.\d{1,3}){3}$/.test(settings.printerIp))) throw new Error('Enter a valid printer IP address');
+    queue.state.settings = {
+      deviceName: settings.deviceName || (process.env.POS_PRINTER_PORT || 'COM1'),
+      paperWidth: settings.paperWidth,
+      adapter: settings.adapter,
+      connection,
+      printerIp: String(settings.printerIp || process.env.POS_PRINTER_IP || '192.168.1.100'),
+      printerPort: Number(settings.printerPort || process.env.POS_PRINTER_TCP_PORT || 9100),
+      baudRate: Number(settings.baudRate || process.env.POS_PRINTER_BAUD || 9600),
+    }; queue.save(); return queue.state.settings;
   }));
   handle('printer:enqueue', id => { if (typeof id !== 'string' || !idPattern.test(id)) throw new Error('Invalid payment id'); return queue.enqueue(id); });
   handle('printer:retry', id => { if (typeof id !== 'string' || !idPattern.test(id)) throw new Error('Invalid job id'); return queue.retry(id); });
@@ -115,6 +140,10 @@ async function createWindow() {
     const html = await prepare({ status: 'PAID', orderNo: 'TEST', amount: 1000, paymentMethod: 'TEST', paidAt: new Date().toISOString(), items: [{ name: 'ທົດສອບການພິມ', count: 1, subtotal: 1000 }] }, settings);
     return printHtml(html, settings);
   }));
+  handle('rfid:state', () => rfidScanner.snapshot());
+  handle('rfid:start', config => rfidScanner.start(config));
+  handle('rfid:stop', () => rfidScanner.stop());
+  handle('rfid:restart', config => rfidScanner.restart(config));
   handle('payment:close', () => { if (paymentWindow && !paymentWindow.isDestroyed()) paymentWindow.close(); return true; });
   handle('payment:open', async id => {
     const data = await paymentData(id, 'status'); const target = new URL(data.redirectURL);
@@ -147,5 +176,5 @@ else {
   app.on('second-instance', () => { mainWindow?.show(); mainWindow?.focus(); });
   app.whenReady().then(createWindow).catch(error => { console.error(error); app.quit(); });
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => server?.close());
+  app.on('before-quit', () => { void rfidScanner?.stop(); server?.close(); });
 }

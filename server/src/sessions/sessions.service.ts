@@ -105,6 +105,27 @@ export class SessionsService {
       `🔄 [Session Status] Mode: ${session.currentMode}, ActiveProduct: ${session.activeProductId?.toString() || 'None'}`,
     );
 
+    if (session.currentMode === DeviceMode.PAYMENT) {
+      const lockedTagIds = this.normalizeTagIds(session.lastScanData);
+      const lockedResult = await this.processCheckout(lockedTagIds);
+      this.gateway.emitScanUpdate(deviceId, {
+        tagIds: lockedTagIds,
+        lastCapturedAt: session.lastCapturedAt,
+        mode: DeviceMode.PAYMENT,
+        result: {
+          ...lockedResult,
+          basketId: session.currentBasketId,
+          basketKey: this.makeBasketKey(lockedTagIds),
+          isNewBasket: false,
+        },
+        status: 'STABLE',
+        basketId: session.currentBasketId,
+        basketKey: this.makeBasketKey(lockedTagIds),
+        isNewBasket: false,
+      });
+      return lockedResult;
+    }
+
     const now = new Date();
     const basketKey = this.makeBasketKey(cleanTagIds);
     const previousTagIds = this.normalizeTagIds(session.lastScanData);
@@ -219,7 +240,7 @@ export class SessionsService {
     const tagIds = this.normalizeTagIds(session.lastScanData);
     let result: SnapshotResult = { items: [], totalPrice: 0, tagIds };
 
-    if (session.currentMode === DeviceMode.CHECKOUT && tagIds.length > 0) {
+    if ((session.currentMode === DeviceMode.CHECKOUT || session.currentMode === DeviceMode.PAYMENT) && tagIds.length > 0) {
       result = await this.processCheckout(tagIds);
     } else if (session.currentMode === DeviceMode.CHECK) {
       result = await this.processCheck(tagIds);
