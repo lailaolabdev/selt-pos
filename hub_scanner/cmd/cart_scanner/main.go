@@ -21,6 +21,7 @@ var (
 	lastAnyTagTime time.Time
 	lastNewTagTime time.Time
 	isStable       bool
+	logTimestamps  = make(map[string]time.Time)
 	serverURL      = "https://api-seltpos.soudev.site/tags/capture"
 	// serverURL     = "http://localhost:3000/tags/capture"
 	deviceID      = "RPi-POS-01"
@@ -32,6 +33,15 @@ var (
 	// RFID_BAUD explicitly when using a reader with another speed.
 	BaudRates = []int{9600}
 )
+
+func logThrottled(key string, interval time.Duration, format string, args ...interface{}) {
+	now := time.Now()
+	if previous, ok := logTimestamps[key]; ok && now.Sub(previous) < interval {
+		return
+	}
+	logTimestamps[key] = now
+	fmt.Printf(format, args...)
+}
 
 func playSound(name string) {
 	// Sound is disabled for the RFID scanner.
@@ -72,15 +82,6 @@ func setReaderBeeperModeIfRequested() {
 
 	if _, err := port.Write(cmd); err != nil {
 		fmt.Println("⚠️  Failed to send RFID reader beeper command:", err)
-		return
-	}
-
-	time.Sleep(150 * time.Millisecond)
-	buf := make([]byte, 32)
-	if n, err := port.Read(buf); err == nil && n > 0 {
-		fmt.Printf("🔇 RFID reader beeper command sent. Response: % X\n", buf[:n])
-	} else {
-		fmt.Println("🔇 RFID reader beeper command sent. No response from reader.")
 	}
 }
 
@@ -232,12 +233,12 @@ func reconnectRFIDPort(lastPort string, baud int) (string, bool) {
 		candidates := discoverPorts()
 		candidate, err := selectRFIDPort(candidates, selector)
 		if err != nil {
-			fmt.Println("⚠️  RFID reconnect:", err)
+			logThrottled("reconnect-select", 30*time.Second, "⚠️ RFID reconnect: %v\n", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
 		if candidate == nil {
-			fmt.Println("🔎 RFID reader disconnected. Waiting to reconnect...")
+			logThrottled("reconnect-disconnected", 30*time.Second, "🔎 RFID reader disconnected. Waiting to reconnect...\n")
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -257,7 +258,7 @@ func reconnectRFIDPort(lastPort string, baud int) (string, bool) {
 			fmt.Printf("✅ RFID reader reconnected on %s\n", candidate.name)
 			return candidate.name, true
 		}
-		fmt.Println("⚠️  RFID reconnect failed:", openErr)
+		logThrottled("reconnect-failed", 30*time.Second, "⚠️ RFID reconnect failed: %v\n", openErr)
 		time.Sleep(2 * time.Second)
 	}
 }
@@ -270,7 +271,6 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 	buf := make([]byte, 1024)
 	decoder := tagDecoder{}
 	detection := newBaudDetection(bauds, initialBaud, time.Now())
-	lastRawLog := time.Time{}
 	bytesSinceCheck := 0
 	lastSyncAttempt := time.Time{}
 	needsSync := false
@@ -283,7 +283,8 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 	lastModePoll := time.Time{}
 	const scanUpdateDebounce = 350 * time.Millisecond
 	rawLogging := strings.ToLower(strings.TrimSpace(os.Getenv("RFID_RAW_LOG")))
-	showRawData := rawLogging != "0" && rawLogging != "false" && rawLogging != "off" && rawLogging != "no"
+	showRawData := rawLogging == "1" || rawLogging == "true" || rawLogging == "on" || rawLogging == "yes"
+	reportedReaderIssue := false
 
 	for {
 		n, err := port.Read(buf)
@@ -317,21 +318,13 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 				// packet returned by the reader for this serial read.
 				fmt.Printf("🧾 RAW TAG DATA: bytes=%d | HEX: % X | TEXT: %q\n", n, buf[:n], buf[:n])
 			}
-			if !detection.confirmed && nowRead.Sub(lastRawLog) >= time.Second {
-				preview := buf[:n]
-				if len(preview) > 32 {
-					preview = preview[:32]
-				}
-				fmt.Printf("📥 Serial RX at %d baud: %d bytes | HEX: % X | Text: %q\n", detection.current(), n, preview, preview)
-				lastRawLog = nowRead
-			}
 			for _, tagID := range decoder.feed(buf[:n]) {
 				if !detection.confirmed {
 					detection.confirmed = true
+					reportedReaderIssue = false
 					fmt.Printf("✅ Readable tag received — using %d baud\n", detection.current())
 				}
 				if _, exists := tagLastSeen[tagID]; !exists {
-					fmt.Printf("🏷️  New Tag Found: %s — collecting unique IDs for 3 seconds\n", tagID)
 					lastNewTagTime = nowRead
 					isStable = false
 				}
@@ -354,15 +347,17 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 			detection = newBaudDetection(bauds, detection.current(), time.Now())
 			detection.confirmed = baudWasConfirmed
 			bytesSinceCheck = 0
-			lastRawLog = time.Time{}
 			continue
 		}
 
 		if detection.due(nowRead) {
-			if bytesSinceCheck == 0 {
-				fmt.Printf("⚠️ No serial bytes received at %d baud. Keep a tag on the reader.\n", detection.current())
-			} else {
-				fmt.Printf("⚠️ Received %d bytes at %d baud, but no valid text tag ending in CR/LF. Check baud rate or reader output protocol.\n", bytesSinceCheck, detection.current())
+			if !detection.confirmed && !reportedReaderIssue {
+				if bytesSinceCheck == 0 {
+					fmt.Printf("⚠️ No RFID data received at %d baud. Check reader connection/configuration.\n", detection.current())
+				} else {
+					fmt.Printf("⚠️ RFID sent %d unreadable bytes at %d baud. Check reader output format.\n", bytesSinceCheck, detection.current())
+				}
+				reportedReaderIssue = true
 			}
 			bytesSinceCheck = 0
 			if len(bauds) > 1 {
@@ -379,7 +374,6 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 				fmt.Printf("🔎 Trying %d baud...\n", next)
 			} else {
 				detection.lastTry = nowRead
-				fmt.Println("   RFID_BAUD is fixed. Verify this value with the reader configuration.")
 			}
 		}
 
@@ -388,7 +382,6 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 		for id, lastSeen := range tagLastSeen {
 			if now.Sub(lastSeen) >= tagExpiry {
 				delete(tagLastSeen, id)
-				fmt.Printf("🗑️  Tag Removed: %s\n", id)
 				isStable = false
 				lastNewTagTime = now // Reset stability timer on removal too
 			}
@@ -397,13 +390,11 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 		activeIDsAfter := getActiveTagIDs()
 
 		previousObserved := append([]string{}, batch.observed...)
-		wasPending := batch.pending
 		batch.observe(activeIDsAfter, now)
 		if realtimeUpdates && !sameTagIDs(activeIDsAfter, previousObserved) {
 			lastTagChangeAt = now
 		}
 		if realtimeUpdates && !lastTagChangeAt.IsZero() && now.Sub(lastTagChangeAt) >= scanUpdateDebounce && !sameTagIDs(activeIDsAfter, lastScanningIDs) {
-			fmt.Printf("⚡ RFID set changed: %d tags — pushing SCANNING update\n", len(activeIDsAfter))
 			if sendCaptureToServer(activeIDsAfter, "SCANNING") {
 				lastScanningIDs = append([]string{}, activeIDsAfter...)
 				lastTagChangeAt = time.Time{}
@@ -411,13 +402,9 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 				lastTagChangeAt = now
 			}
 		}
-		if !wasPending && batch.pending {
-			fmt.Printf("⏳ Checking RFID set for 3 seconds (%d unique tags)...\n", len(activeIDsAfter))
-		}
 		if ids, ready := batch.take(now); ready {
 			status := captureStatus(ids)
 			isStable = len(ids) > 0
-			fmt.Printf("✅ RFID set checked for 3 seconds: %d unique tags [%s]\n", len(ids), strings.Join(ids, ", "))
 			needsSync = !sendCaptureToServer(ids, status)
 			if realtimeUpdates && !needsSync {
 				lastScanningIDs = append([]string{}, ids...)
@@ -441,11 +428,9 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 
 func sendCaptureToServer(tagIds []string, status string) bool {
 	if sessionMode == "IDLE" {
-		fmt.Println("⏸️  RFID capture paused: waiting for POS Start (mode=IDLE)")
 		return true
 	}
 	if sessionMode == "PAYMENT" {
-		fmt.Println("🔒 RFID capture paused: checkout basket is locked for payment (mode=PAYMENT)")
 		return true
 	}
 	payload := map[string]interface{}{
@@ -455,24 +440,17 @@ func sendCaptureToServer(tagIds []string, status string) bool {
 	}
 
 	jsonData, _ := json.Marshal(payload)
-	fmt.Printf("📤 Syncing %d tags to server (Status: %s)\n", len(tagIds), status)
-	if len(tagIds) > 0 {
-		fmt.Printf("   Tags: %s\n", strings.Join(tagIds, ", "))
-	} else {
-		fmt.Println("   Tags: <empty>")
-	}
-
 	resp, err := captureClient.Post(serverURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		fmt.Println("❌ Server Error:", err)
+		logThrottled("capture-network", 10*time.Second, "❌ API POST /tags/capture failed: %v\n", err)
 		return false
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		fmt.Printf("❌ Server rejected capture: %s | %s\n", resp.Status, strings.TrimSpace(string(body)))
+		logThrottled("capture-rejected", 10*time.Second, "❌ API POST /tags/capture tags=%d status=%s rejected: %s\n", len(tagIds), status, strings.TrimSpace(string(body)))
 	} else {
-		fmt.Printf("✅ Server received capture: %s | %s\n", resp.Status, strings.TrimSpace(string(body)))
+		fmt.Printf("📤 API POST /tags/capture tags=%d status=%s -> %s\n", len(tagIds), status, resp.Status)
 	}
 	if readErr != nil {
 		fmt.Println("⚠️ Could not read server response:", readErr)
@@ -485,19 +463,19 @@ func refreshSessionMode() {
 	snapshotURL := strings.TrimRight(baseURL, "/") + "/session/" + url.PathEscape(deviceID) + "/snapshot"
 	resp, err := captureClient.Get(snapshotURL)
 	if err != nil {
-		fmt.Println("⚠️  Could not read POS RFID session mode:", err)
+		logThrottled("session-mode-network", 30*time.Second, "⚠️ Could not read POS RFID session mode: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		fmt.Printf("⚠️  POS RFID session mode rejected: %s\n", resp.Status)
+		logThrottled("session-mode-rejected", 30*time.Second, "⚠️ POS RFID session mode rejected: %s\n", resp.Status)
 		return
 	}
 	var snapshot struct {
 		Mode string `json:"mode"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&snapshot); err != nil || snapshot.Mode == "" {
-		fmt.Println("⚠️  Invalid POS RFID session mode response")
+		logThrottled("session-mode-invalid", 30*time.Second, "⚠️ Invalid POS RFID session mode response\n")
 		return
 	}
 	if snapshot.Mode != sessionMode {

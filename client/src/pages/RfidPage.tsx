@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Play, Radio, RefreshCw, RotateCcw, Square } from 'lucide-react';
 import type { RfidLogEntry, RfidScannerState } from '@/lib/desktop';
 
+const MAX_VISIBLE_LOGS = 300;
 const defaultConfig = { port: '', baudRate: 9600, deviceId: 'RPi-POS-01', serverUrl: 'https://api-seltpos.soudev.site' };
 const statusText: Record<RfidScannerState['status'], string> = {
   stopped: 'ຢຸດຢູ່', starting: 'ກຳລັງເລີ່ມ', running: 'ກຳລັງເຮັດວຽກ', stopping: 'ກຳລັງຢຸດ', error: 'ມີບັນຫາ',
@@ -26,7 +27,7 @@ export function RfidPage() {
     void refresh().catch(error => setMessage(error instanceof Error ? error.message : 'ບໍ່ສາມາດອ່ານສະຖານະ RFID'));
     const unsubscribe = desktop.onRfidEvent(event => {
       if (event.type === 'state') setState(event.data as RfidScannerState);
-      if (event.type === 'log') setState(previous => previous ? { ...previous, logs: [...previous.logs, event.data as RfidLogEntry] } : previous);
+      if (event.type === 'log') setState(previous => previous ? { ...previous, logs: [...previous.logs, event.data as RfidLogEntry].slice(-MAX_VISIBLE_LOGS) } : previous);
     });
     const timer = window.setInterval(() => void refresh().catch(() => {}), 2000);
     return () => { unsubscribe(); window.clearInterval(timer); };

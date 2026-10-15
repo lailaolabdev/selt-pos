@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const MAX_LIVE_LOGS = 300;
 
 function executableCandidates() {
   const name = process.platform === 'win32' ? 'cart_scanner.exe' : 'cart_scanner';
@@ -74,7 +75,10 @@ class RfidScanner {
   appendLog(stream, text) {
     if (stream === 'system') {
       const entry = { at: new Date().toISOString(), stream, text: text.trim() };
-      if (entry.text) this.state.logs.push(entry);
+      if (entry.text) {
+        this.state.logs.push(entry);
+        if (this.state.logs.length > MAX_LIVE_LOGS) this.state.logs.splice(0, this.state.logs.length - MAX_LIVE_LOGS);
+      }
       this.writeLogFile(entry);
       this.emit('log', entry);
       return;
@@ -86,10 +90,10 @@ class RfidScanner {
       if (!line) continue;
       const entry = { at: new Date().toISOString(), stream, text: line };
       this.state.logs.push(entry);
+      if (this.state.logs.length > MAX_LIVE_LOGS) this.state.logs.splice(0, this.state.logs.length - MAX_LIVE_LOGS);
       this.writeLogFile(entry);
       this.emit('log', entry);
     }
-    this.emit('state', this.snapshot());
   }
 
   writeLogFile(entry) {

@@ -370,8 +370,11 @@ export const POSPage = () => {
                 </div>
             </header>
 
-            {!scanStarted && !showQR && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-md">
-                <div role="dialog" aria-modal="true" aria-labelledby="start-rfid-title" className="w-full max-w-md rounded-3xl border border-white/60 bg-white/95 p-8 text-center shadow-2xl shadow-slate-950/30">
+            {!scanStarted && !showQR && <div role="dialog" aria-modal="true" aria-labelledby="start-rfid-title" className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-md">
+                <Link to="/admin" aria-label="ເຂົ້າໜ້າຈັດການ" title="ເຂົ້າໜ້າຈັດການ" className="fixed right-5 top-5 z-[60] flex h-16 w-16 items-center justify-center rounded-2xl border border-white/80 bg-white p-2 shadow-xl shadow-slate-950/20 transition-transform hover:scale-105 focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-purple-300">
+                    <img src="/logo.jpeg" alt="4B-easy-POS" className="h-full w-full rounded-xl object-contain" />
+                </Link>
+                <div className="w-full max-w-md rounded-3xl border border-white/60 bg-white/95 p-8 text-center shadow-2xl shadow-slate-950/30">
                     <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-purple-50 text-[#7b2db5] ring-8 ring-purple-50/70"><ShoppingBasket className="h-12 w-12" strokeWidth={1.6} /></div>
                     <p className="mt-6 text-xs font-black tracking-[0.18em] text-[#7b2db5]">4B POS · SELF CHECKOUT</p>
                     <h2 id="start-rfid-title" className="mt-2 text-3xl font-black text-slate-900">ພ້ອມເລີ່ມລາຍການໃໝ່</h2>
