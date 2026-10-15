@@ -27,16 +27,16 @@ Sign in to Admin, open the printer settings at `/admin/printer`, choose an OS-in
 
 ### Windows USB thermal printer (80 mm)
 
-The POS sends receipts through the Windows Print Spooler. It does not open the USB device directly, so the thermal printer must first be installed in Windows as a normal printer.
+The default **Windows driver** connection sends receipts through the Windows Print Spooler. For ESC/POS printers, the POS can also send receipts directly over network IP or a Windows COM port. Direct mode sends the receipt as a raster image, then sends paper-feed and cutter commands.
 
 1. Install the printer's Windows driver or the manufacturer's setup utility, then connect the USB cable and power on the printer.
 2. In **Settings → Bluetooth & devices → Printers & scanners**, confirm that the printer appears and print a Windows test page. Rename it if the store needs a clear name, such as `POS-Thermal-80mm`.
 3. Open **Printing preferences** for that printer and set an 80 mm roll/custom paper size, zero or minimum margins, portrait orientation, and the cutter option if the driver exposes one. Disable “Fit to page” or scaling.
 4. Start the Electron POS, open **Admin → Printer**, select the Windows printer, choose **80 mm**, save, and press **Print test**. A new installation is selected automatically when Windows reports it as the default printer.
 
-If Windows shows the device only under **Ports (COM & LPT)** and it does not appear in **Printers & scanners**, the printer has no Windows print driver installed. Install the correct driver first. Direct ESC/POS-over-COM or raw USB printing is a separate adapter and is not used by the current spooler-based receipt function.
+If Windows shows the device only under **Ports (COM & LPT)** and it does not appear in **Printers & scanners**, choose **COM/USB-Serial (ESC/POS)** in POS printer settings, refresh the COM list, and set the baud rate to match the printer. If the printer has a LAN port, choose **IP network (ESC/POS)** and enter its IP address and raw-print port (usually 9100). Keep the printer and POS on the same network and verify that raw printing is enabled in the printer configuration.
 
-The app bundles a Lao font (SIL Open Font License in `public/fonts/OFL.txt`). Native printing renders the receipt with the Lao font into a PNG image first, then submits that image silently to the configured OS printer. Paper cutting uses the printer driver's Auto cut setting. Printer enumeration confirms an installed driver, not physical connectivity or paper availability. Validate margins, long receipts and cutter behavior on the actual printer/OS.
+The app bundles a Lao font (SIL Open Font License in `public/fonts/OFL.txt`). Both printing paths render Lao text as an image. Windows driver mode uses the driver's paper and Auto cut settings. Direct ESC/POS mode sends the image, three feed lines and a full-cut command; the printer must support ESC/POS raster printing and have a cutter installed/enabled. Printer enumeration confirms an installed driver or COM port, not physical connectivity or paper availability. Print a test receipt on the actual printer before using it for sales.
 
 ## Configuration
 

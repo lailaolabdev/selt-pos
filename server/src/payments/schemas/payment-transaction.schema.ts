@@ -71,6 +71,12 @@ export class PaymentTransaction extends Document {
 
   @Prop()
   paidAt?: Date;
+
+  @Prop()
+  failureCode?: string;
+
+  @Prop()
+  failedAt?: Date;
 }
 
 export const PaymentTransactionSchema = SchemaFactory.createForClass(PaymentTransaction);

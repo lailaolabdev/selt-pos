@@ -4,9 +4,10 @@ import {
   Injectable,
   InternalServerErrorException,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PHAJAY_QR_BANKS } from './dto/payment.dto';
 import { Model } from 'mongoose';
 import { SessionsService } from '../sessions/sessions.service';
@@ -243,6 +244,9 @@ export class PaymentsService {
       bank: payment.bank,
       paidAt: payment.paidAt,
       paymentMethod: payment.paymentMethod,
+      provider: payment.provider,
+      failureCode: payment.failureCode,
+      failedAt: payment.failedAt,
     };
   }
 
@@ -386,17 +390,20 @@ export class PaymentsService {
     return { message: 'OK' };
   }
 
-  async handleBioWebhook(payload: Record<string, unknown>, rawBody?: Buffer) {
+  async handleBioWebhook(
+    payload: Record<string, unknown>,
+    meta?: { rawBody?: Buffer; headers?: Record<string, string | string[] | undefined> },
+  ) {
     const demoMode = process.env.BIO_DEMO_MODE?.trim().toLowerCase() === 'true';
     this.logger.log(
-      `[BioWebhook] RECEIVED ${JSON.stringify({
+      `[BioWebhook] BODY ${JSON.stringify({
         receivedAt: new Date().toISOString(),
         demoMode,
-        hasRawBody: Boolean(rawBody),
-        rawBody: rawBody?.toString('utf8'),
+        hasRawBody: Boolean(meta?.rawBody),
         payload,
       })}`,
     );
+    this.verifyBioWebhookSignature(meta);
     const orderNo = this.toOptionalString(payload.orderNo);
     const transactionId = this.toOptionalString(payload.transactionId);
     const paidAmount = Number(payload.amount ?? payload.txnAmount);
@@ -417,16 +424,28 @@ export class PaymentsService {
     payment.webhookPayloads = [...(payment.webhookPayloads || []), payload];
     payment.provider = PaymentProvider.BIO;
     payment.providerTransactionId = transactionId || payment.providerTransactionId;
+    const event = this.toOptionalString(payload.event);
+    const failureCode = this.toOptionalString(payload.failureCode) || 'UNKNOWN';
     const currency = this.toOptionalString(payload.currency);
     const idFromProvider = this.toOptionalString(payload.deviceId) || this.toOptionalString(payload.terminalId);
-    const idMatches = Boolean(
-      idFromProvider &&
-      [payment.deviceId, process.env.BIO_DEVICE_ID?.trim()].includes(idFromProvider),
-    );
     const amountMatches = Number.isFinite(paidAmount) && paidAmount === payment.amount;
-    const validPayment = demoMode
-      ? idMatches || amountMatches
-      : payload.event === 'palm_payment.succeeded' && currency === 'LAK' && amountMatches;
+    if (event === 'palm_payment.failed') {
+      if (payment.status === PaymentStatus.WAITING) {
+        payment.status = PaymentStatus.FAILED;
+        payment.failureCode = failureCode;
+        payment.failedAt = this.toProviderDate(payload.failedAt) || new Date();
+        await payment.save();
+        this.emitPaymentUpdate(payment);
+        this.logger.log(
+          `[BioWebhook] PAYMENT_FAILED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, failureCode, transactionId })}`,
+        );
+      } else {
+        await payment.save();
+      }
+      return { message: 'OK' };
+    }
+
+    const validPayment = event === 'palm_payment.succeeded' && currency === 'LAK' && amountMatches;
     if (!validPayment) {
       this.logger.warn(
         `[BioWebhook] IGNORED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerEvent: payload.event, currency, paidAmount, expectedAmount: payment.amount, idFromProvider, payload })}`,
@@ -626,6 +645,33 @@ export class PaymentsService {
       : undefined;
   }
 
+  private toProviderDate(value: unknown) {
+    const text = this.toOptionalString(value);
+    if (!text) return undefined;
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  private verifyBioWebhookSignature(meta?: {
+    rawBody?: Buffer;
+    headers?: Record<string, string | string[] | undefined>;
+  }) {
+    const secret = process.env.BIO_WEBHOOK_SECRET?.trim();
+    if (!secret) {
+      this.logger.warn('[BioWebhook] BIO_WEBHOOK_SECRET is not configured; accepting unsigned webhook');
+      return;
+    }
+    const signature = meta?.headers?.['x-webhook-signature'];
+    const received = Array.isArray(signature) ? signature[0] : signature;
+    if (!meta?.rawBody || !received || !/^[a-f0-9]{64}$/i.test(received)) {
+      throw new UnauthorizedException('Invalid Bio webhook signature');
+    }
+    const expected = createHmac('sha256', secret).update(meta.rawBody).digest('hex');
+    if (!timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(received, 'hex'))) {
+      throw new UnauthorizedException('Invalid Bio webhook signature');
+    }
+  }
+
   private emitPaymentUpdate(payment: PaymentTransaction) {
     this.gateway.emitPaymentUpdate(payment.deviceId, {
       paymentId: String(payment._id),
@@ -634,6 +680,9 @@ export class PaymentsService {
       status: payment.status,
       paidAt: payment.paidAt,
       paymentMethod: payment.paymentMethod,
+      provider: payment.provider,
+      failureCode: payment.failureCode,
+      failedAt: payment.failedAt,
     });
   }
 }

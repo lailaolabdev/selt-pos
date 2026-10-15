@@ -3,9 +3,14 @@ export interface PrintJob { id: string; paymentId: string; status: PrintStatus; 
 export interface PrinterSettings {
   deviceName: string;
   paperWidth: 58 | 80;
-  adapter: 'system' | 'mock';
+  adapter: 'system' | 'raw-network' | 'raw-serial' | 'mock';
+  printerIp?: string;
+  printerPort?: number;
+  portPath?: string;
+  baudRate?: number;
 }
 export interface PrinterInfo { name: string; displayName: string; isDefault: boolean; status: number }
+export interface SerialPortInfo { path: string; displayName: string }
 export interface DesktopState { settings: PrinterSettings; jobs: PrintJob[] }
 export interface RfidScannerConfig { port: string; baudRate: number; deviceId: string; serverUrl: string }
 export interface RfidLogEntry { at: string; stream: 'stdout' | 'stderr' | 'system'; text: string }
@@ -14,6 +19,7 @@ declare global {
   interface Window {
     posDesktop?: {
       listPrinters(): Promise<PrinterInfo[]>;
+      listSerialPorts(): Promise<SerialPortInfo[]>;
       getState(): Promise<DesktopState>;
       configure(settings: PrinterSettings): Promise<PrinterSettings>;
       printReceipt(paymentId: string): Promise<PrintJob>;
@@ -32,6 +38,7 @@ declare global {
 export const printerText = {
   title: 'ຕັ້ງຄ່າເຄື່ອງພິມ', browser: 'ກະລຸນາເປີດຜ່ານແອັບ POS ເພື່ອໃຊ້ເຄື່ອງພິມ',
   system: 'ເຄື່ອງພິມ Windows', mock: 'ຈຳລອງການພິມ', select: 'ເລືອກເຄື່ອງພິມ',
+  connection: 'ວິທີເຊື່ອມຕໍ່', systemSpooler: 'ຜ່ານ Windows driver', rawNetwork: 'IP ເຄືອຂ່າຍ (ESC/POS)', rawSerial: 'COM/USB-Serial (ESC/POS)',
   paper: 'ຂະໜາດເຈ້ຍ', save: 'ບັນທຶກ', test: 'ພິມທົດສອບ', refresh: 'ໂຫຼດໃໝ່',
   saved: 'ບັນທຶກແລ້ວ', error: 'ບໍ່ສາມາດດຳເນີນການໄດ້ ກະລຸນາກວດເຄື່ອງພິມ ແລະການເຊື່ອມຕໍ່',
   jobs: 'ລາຍການພິມ', empty: 'ຍັງບໍ່ມີລາຍການພິມ', retry: 'ພິມອີກຄັ້ງ',

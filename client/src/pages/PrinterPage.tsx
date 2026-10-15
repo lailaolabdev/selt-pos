@@ -1,37 +1,39 @@
 import { useCallback, useEffect, useState } from 'react';
-import { printerText as text, type DesktopState, type PrinterInfo, type PrinterSettings } from '@/lib/desktop';
+import { printerText as text, type DesktopState, type PrinterInfo, type PrinterSettings, type SerialPortInfo } from '@/lib/desktop';
 import { CheckCircle2, Printer, RefreshCw, TestTube2 } from 'lucide-react';
 
 export function PrinterPage() {
   const [state, setState] = useState<DesktopState | null>(null);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
+  const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
   const [settings, setSettings] = useState<PrinterSettings>({ deviceName: '', paperWidth: 58, adapter: 'system' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const desktop = window.posDesktop;
   const refresh = useCallback(async () => {
     if (!desktop) return;
-    const devices = await desktop.listPrinters();
-    const next = await desktop.getState();
+    const [devices, ports, next] = await Promise.all([desktop.listPrinters(), desktop.listSerialPorts(), desktop.getState()]);
     const configuredPrinterExists = devices.some(device => device.name === next.settings.deviceName);
     const defaultPrinter = devices.find(device => [device.name, device.displayName].some(value => value.trim().toLowerCase() === 'pos 80'))
       || devices.find(device => device.isDefault)
       || devices[0];
     const selectedSettings: PrinterSettings = {
       ...next.settings,
-      adapter: 'system',
-      ...(configuredPrinterExists ? {} : defaultPrinter ? { deviceName: defaultPrinter.name } : { deviceName: '' }),
+      ...(next.settings.adapter === 'system' && !configuredPrinterExists ? { deviceName: defaultPrinter?.name || '' } : {}),
     };
-    setState(next); setSettings(selectedSettings); setPrinters(devices);
+    setState(next); setSettings(selectedSettings); setPrinters(devices); setSerialPorts(ports);
   }, [desktop]);
   useEffect(() => { void refresh().catch(() => setMessage(text.error)); }, [refresh]);
   async function action(work: () => Promise<unknown>, success = text.saved) {
     setBusy(true); setMessage('');
     try { await work(); await refresh(); setMessage(success); } catch (error) { setMessage(error instanceof Error ? error.message : text.error); } finally { setBusy(false); }
   }
+  const readyToTest = settings.adapter === 'system' ? Boolean(settings.deviceName)
+    : settings.adapter === 'raw-network' ? Boolean(settings.printerIp && settings.printerPort)
+      : settings.adapter === 'raw-serial' ? Boolean(settings.portPath && settings.baudRate) : false;
   const testSelectedPrinter = () => action(async () => {
-    if (!settings.deviceName) throw new Error('Select a printer');
-    await desktop!.configure({ ...settings, adapter: 'system' });
+    if (!readyToTest) throw new Error('ກະລຸນາຕັ້ງຄ່າການເຊື່ອມຕໍ່ printer ໃຫ້ຄົບ');
+    await desktop!.configure(settings);
     await desktop!.testPrint();
   }, text.note);
   if (!desktop) return <p>{text.browser}</p>;
@@ -51,10 +53,13 @@ export function PrinterPage() {
       </div>
       <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-black">ຕັ້ງຄ່າ ແລະ ທົດສອບ</h2>
-        <p className="rounded-lg bg-purple-50 p-3 text-sm font-semibold text-purple-800">ເພີ່ມ printer ໃນ Windows ແລ້ວເຄື່ອງຈະສະແດງຢູ່ລາຍການດ້ານເທິງ. ໃບບິນພາສາລາວຈະຖືກ render ເປັນຮູບກ່ອນສົ່ງພິມ ແລະການຕັດເຈ້ຍຈະໃຊ້ຄ່າ Auto cut ຂອງ printer driver.</p>
+        <label className="block text-sm font-bold text-slate-600">{text.connection}<select className="mt-2 w-full rounded-lg border border-slate-300 p-3" value={settings.adapter} onChange={e => setSettings({ ...settings, adapter: e.target.value as PrinterSettings['adapter'] })}><option value="system">{text.systemSpooler}</option><option value="raw-network">{text.rawNetwork}</option><option value="raw-serial">{text.rawSerial}</option></select></label>
+        {settings.adapter === 'system' && <p className="rounded-lg bg-purple-50 p-3 text-sm font-semibold text-purple-800">ວິທີນີ້ໃຊ້ Windows driver ແລະຄ່າ Auto cut ຂອງ driver.</p>}
+        {settings.adapter === 'raw-network' && <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3"><label className="block text-sm font-bold text-slate-600">IP ເຄື່ອງພິມ<input className="mt-2 w-full rounded-lg border border-slate-300 p-3 font-mono" inputMode="decimal" placeholder="192.168.1.50" value={settings.printerIp || ''} onChange={e => setSettings({ ...settings, printerIp: e.target.value.trim() })} /></label><label className="block text-sm font-bold text-slate-600">Port<input className="mt-2 w-full rounded-lg border border-slate-300 p-3 font-mono" type="number" min="1" max="65535" value={settings.printerPort ?? 9100} onChange={e => setSettings({ ...settings, printerPort: Number(e.target.value) })} /></label><p className="col-span-full rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">ໃຊ້ໄດ້ກັບ printer ທີ່ຮອງຮັບ ESC/POS ຜ່ານ TCP (ປົກກະຕິ Port 9100). ສົ່ງຄຳສັ່ງຕັດກະດາດໂດຍກົງ.</p></div>}
+        {settings.adapter === 'raw-serial' && <div className="grid grid-cols-2 gap-3"><label className="block text-sm font-bold text-slate-600">COM Port<select className="mt-2 w-full rounded-lg border border-slate-300 p-3 font-mono" value={settings.portPath || ''} onChange={e => setSettings({ ...settings, portPath: e.target.value })}><option value="">ເລືອກ COM Port</option>{serialPorts.map(port => <option key={port.path} value={port.path}>{port.path} · {port.displayName}</option>)}</select></label><label className="block text-sm font-bold text-slate-600">Baud rate<select className="mt-2 w-full rounded-lg border border-slate-300 p-3 font-mono" value={settings.baudRate ?? 115200} onChange={e => setSettings({ ...settings, baudRate: Number(e.target.value) })}>{[9600, 19200, 38400, 57600, 115200].map(rate => <option key={rate} value={rate}>{rate}</option>)}</select></label><p className="col-span-full rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">ເລືອກ COM Port ທີ່ຜູກກັບ printer. ຄວາມໄວ baud rate ຕ້ອງກົງກັບຄ່າຂອງ printer.</p></div>}
         <label className="block text-sm font-bold text-slate-600">{text.paper}<select className="mt-2 w-full rounded-lg border border-slate-300 p-3" value={settings.paperWidth} onChange={e => setSettings({ ...settings, paperWidth: Number(e.target.value) as 58 | 80 })}><option value="58">58 mm</option><option value="80">80 mm</option></select></label>
-        <div className="rounded-lg bg-slate-50 p-3 text-sm"><span className="font-bold text-slate-500">ເຄື່ອງທີ່ເລືອກ:</span><p className="mt-1 truncate font-black text-slate-800">{settings.deviceName || text.select}</p></div>
-        <div className="grid gap-2"><button className={buttonClass} disabled={busy || !settings.deviceName} onClick={() => void action(() => desktop.configure({ ...settings, adapter: 'system' }))}>{text.save}</button><button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-purple-200 px-5 py-3 font-bold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || !settings.deviceName} onClick={testSelectedPrinter}><TestTube2 className="h-4 w-4" />{text.test}</button></div>
+        {settings.adapter === 'system' && <div className="rounded-lg bg-slate-50 p-3 text-sm"><span className="font-bold text-slate-500">ເຄື່ອງທີ່ເລືອກ:</span><p className="mt-1 truncate font-black text-slate-800">{printers.find(printer => printer.name === settings.deviceName)?.displayName || text.select}</p></div>}
+        <div className="grid gap-2"><button className={buttonClass} disabled={busy || !readyToTest} onClick={() => void action(() => desktop.configure(settings))}>{text.save}</button><button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-purple-200 px-5 py-3 font-bold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || !readyToTest} onClick={testSelectedPrinter}><TestTube2 className="h-4 w-4" />{text.test}</button></div>
         <p className="text-xs leading-5 text-slate-500">{text.note}</p><p role="status" className="rounded-lg bg-slate-50 p-3 text-sm font-bold text-slate-700">{message}</p>
       </div>
     </div>

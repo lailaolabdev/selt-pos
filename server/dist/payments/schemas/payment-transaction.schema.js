@@ -44,6 +44,8 @@ let PaymentTransaction = class PaymentTransaction extends mongoose_2.Document {
     paymentMethod;
     webhookPayloads;
     paidAt;
+    failureCode;
+    failedAt;
 };
 exports.PaymentTransaction = PaymentTransaction;
 __decorate([
@@ -122,6 +124,14 @@ __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", Date)
 ], PaymentTransaction.prototype, "paidAt", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", String)
+], PaymentTransaction.prototype, "failureCode", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Date)
+], PaymentTransaction.prototype, "failedAt", void 0);
 exports.PaymentTransaction = PaymentTransaction = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], PaymentTransaction);

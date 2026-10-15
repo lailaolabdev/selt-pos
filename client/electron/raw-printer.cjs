@@ -74,8 +74,11 @@ function writeNetwork(data, printerIp, printerPort = 9100) {
   });
 }
 
-async function printRaster({ bitmap, width, height, connection = 'serial', portPath = 'COM1', baudRate = 9600, printerIp, printerPort = 9100 }) {
-  if (process.platform !== 'win32') throw new Error('Raw printer requires Windows');
+async function printRaster({ bitmap, width, height, connection = 'serial', portPath = 'COM1', baudRate = 115200, printerIp, printerPort = 9100 }) {
+  if (connection === 'serial' && process.platform !== 'win32') throw new Error('Raw COM printer requires Windows');
+  if (!Buffer.isBuffer(bitmap) || bitmap.length !== width * height * 4 || width <= 0 || height <= 0 || height > 65535) {
+    throw new Error('Invalid receipt bitmap dimensions');
+  }
   const file = path.join(os.tmpdir(), `4b-pos-print-${crypto.randomUUID()}.bin`);
   const data = Buffer.concat([
     Buffer.from([0x1b, 0x40]),
@@ -94,11 +97,13 @@ async function printRaster({ bitmap, width, height, connection = 'serial', portP
       '$ErrorActionPreference = "Stop"',
       'Add-Type -AssemblyName System.IO.Ports',
       '$port = New-Object System.IO.Ports.SerialPort($args[0], [int]$args[1], [System.IO.Ports.Parity]::None, 8, [System.IO.Ports.StopBits]::One)',
-      '$port.Handshake = [System.IO.Ports.Handshake]::RequestToSend',
+      '$port.Handshake = [System.IO.Ports.Handshake]::None',
+      '$port.WriteTimeout = 60000',
       '$port.Open()',
       '$bytes = [System.IO.File]::ReadAllBytes($args[2])',
       '$port.Write($bytes, 0, $bytes.Length)',
-      'Start-Sleep -Milliseconds 250',
+      '$drainMs = [Math]::Ceiling(($bytes.Length * 10 * 1000) / [int]$args[1]) + 500',
+      'Start-Sleep -Milliseconds $drainMs',
       '$port.Close()',
     ].join('; ');
     await runPowerShell(script, [portPath, String(baudRate), file]);

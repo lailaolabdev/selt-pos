@@ -29,6 +29,8 @@ export declare class PaymentTransaction extends Document {
     paymentMethod?: string;
     webhookPayloads: Record<string, any>[];
     paidAt?: Date;
+    failureCode?: string;
+    failedAt?: Date;
 }
 export declare const PaymentTransactionSchema: import("mongoose").Schema<PaymentTransaction, import("mongoose").Model<PaymentTransaction, any, any, any, (Document<unknown, any, PaymentTransaction, any, import("mongoose").DefaultSchemaOptions> & PaymentTransaction & Required<{
     _id: import("mongoose").Types.ObjectId;
@@ -221,6 +223,24 @@ export declare const PaymentTransactionSchema: import("mongoose").Schema<Payment
         id: string;
     }> | undefined;
     paidAt?: import("mongoose").SchemaDefinitionProperty<Date | undefined, PaymentTransaction, Document<unknown, {}, PaymentTransaction, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<PaymentTransaction & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & {
+        id: string;
+    }> | undefined;
+    failureCode?: import("mongoose").SchemaDefinitionProperty<string | undefined, PaymentTransaction, Document<unknown, {}, PaymentTransaction, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<PaymentTransaction & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & {
+        id: string;
+    }> | undefined;
+    failedAt?: import("mongoose").SchemaDefinitionProperty<Date | undefined, PaymentTransaction, Document<unknown, {}, PaymentTransaction, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<PaymentTransaction & Required<{
         _id: import("mongoose").Types.ObjectId;

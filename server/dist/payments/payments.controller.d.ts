@@ -30,7 +30,7 @@ export declare class PaymentsController {
         intentId: string;
         expiresInSeconds: number;
     }>;
-    handleBioWebhook(payload: Record<string, unknown>, request: Request & {
+    handleBioWebhook(payload: Record<string, unknown>, headers: Record<string, string | string[] | undefined>, request: Request & {
         rawBody?: Buffer;
     }): Promise<{
         message: string;
@@ -46,6 +46,9 @@ export declare class PaymentsController {
         bank: string | undefined;
         paidAt: Date | undefined;
         paymentMethod: string | undefined;
+        provider: import("./schemas/payment-transaction.schema").PaymentProvider;
+        failureCode: string | undefined;
+        failedAt: Date | undefined;
     }>;
     cancelPayment(paymentId: string, data: CreatePhaJayPaymentLinkDto): Promise<{
         paymentId: string;

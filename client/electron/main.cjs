@@ -5,6 +5,7 @@ const http = require('node:http');
 const { PrintQueue } = require('./queue.cjs');
 const { receiptHtml } = require('./receipt.cjs');
 const { RfidScanner } = require('./rfid-scanner.cjs');
+const { listSerialPorts, printRaster } = require('./raw-printer.cjs');
 const apiUrl = (process.env.POS_API_URL || 'https://api-seltpos.soudev.site').replace(/\/$/, '');
 let mainWindow, paymentWindow, server, queue, rfidScanner, origin;
 const idPattern = /^[a-f0-9]{24}$/i;
@@ -55,7 +56,7 @@ async function renderReceiptImage(html, paperWidth) {
     await win.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     const height = await win.webContents.executeJavaScript('Math.max(1, Math.min(12000, Math.ceil(document.body.getBoundingClientRect().height + 2)))');
     const image = await win.webContents.capturePage({ x: 0, y: 0, width, height });
-    return { data: image.toPNG().toString('base64'), width, height };
+    return { data: image.toPNG().toString('base64'), bitmap: image.getBitmap(), width, height };
   } finally {
     win.destroy();
   }
@@ -67,9 +68,22 @@ function imagePrintHtml(image) {
 
 async function printHtml(html, settings) {
   if (settings.adapter === 'mock') return 'mock';
-  if (settings.adapter !== 'system') throw new Error('Select a Windows printer in settings');
-  if (!settings.deviceName) throw new Error('Select a printer in settings');
   const image = await renderReceiptImage(html, settings.paperWidth);
+  if (settings.adapter === 'raw-network' || settings.adapter === 'raw-serial') {
+    await printRaster({
+      bitmap: image.bitmap,
+      width: image.width,
+      height: image.height,
+      connection: settings.adapter === 'raw-network' ? 'network' : 'serial',
+      printerIp: settings.printerIp,
+      printerPort: settings.printerPort,
+      portPath: settings.portPath,
+      baudRate: settings.baudRate,
+    });
+    return 'submitted';
+  }
+  if (settings.adapter !== 'system') throw new Error('Select a printer connection in settings');
+  if (!settings.deviceName) throw new Error('Select a printer in settings');
   const win = new BrowserWindow({ show: false, webPreferences: securePrefs });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
@@ -115,14 +129,21 @@ async function createWindow() {
   handle('printer:list', async () => {
     return (await mainWindow.webContents.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: p.isDefault, status: p.status }));
   });
+  handle('printer:ports', () => listSerialPorts());
   handle('printer:state', () => ({ settings: queue.state.settings, jobs: queue.state.jobs.slice(-100).reverse() }));
   handle('printer:configure', settings => queue.serial(async () => {
-    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
+    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'raw-network', 'raw-serial', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
     if (settings.adapter === 'system' && !(await mainWindow.webContents.getPrintersAsync()).some(p => p.name === settings.deviceName)) throw new Error('Unknown printer');
+    if (settings.adapter === 'raw-network' && (!settings.printerIp || !require('node:net').isIP(settings.printerIp) || !Number.isInteger(Number(settings.printerPort)) || Number(settings.printerPort) < 1 || Number(settings.printerPort) > 65535)) throw new Error('Enter a valid printer IP and port');
+    if (settings.adapter === 'raw-serial' && (process.platform !== 'win32' || !/^COM\d+$/i.test(settings.portPath || '') || ![9600, 19200, 38400, 57600, 115200].includes(Number(settings.baudRate)))) throw new Error('Select a valid Windows COM port and baud rate');
     queue.state.settings = {
       deviceName: settings.deviceName,
       paperWidth: settings.paperWidth,
       adapter: settings.adapter,
+      printerIp: settings.adapter === 'raw-network' ? settings.printerIp : undefined,
+      printerPort: settings.adapter === 'raw-network' ? Number(settings.printerPort) : undefined,
+      portPath: settings.adapter === 'raw-serial' ? settings.portPath.toUpperCase() : undefined,
+      baudRate: settings.adapter === 'raw-serial' ? Number(settings.baudRate) : undefined,
     }; queue.save(); return queue.state.settings;
   }));
   handle('printer:enqueue', id => { if (typeof id !== 'string' || !idPattern.test(id)) throw new Error('Invalid payment id'); return queue.enqueue(id); });

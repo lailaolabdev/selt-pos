@@ -31,8 +31,11 @@ let PaymentsController = class PaymentsController {
     createBioIntent(data) {
         return this.paymentsService.createBioPaymentIntent(data.deviceId);
     }
-    handleBioWebhook(payload, request) {
-        return this.paymentsService.handleBioWebhook(payload, request.rawBody);
+    handleBioWebhook(payload, headers, request) {
+        return this.paymentsService.handleBioWebhook(payload, {
+            rawBody: request.rawBody,
+            headers,
+        });
     }
     getStatus(paymentId) {
         return this.paymentsService.getStatus(paymentId);
@@ -115,9 +118,10 @@ __decorate([
 __decorate([
     (0, common_1.Post)('bio/webhook'),
     __param(0, (0, common_1.Body)()),
-    __param(1, (0, common_1.Req)()),
+    __param(1, (0, common_1.Headers)()),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, Object]),
     __metadata("design:returntype", void 0)
 ], PaymentsController.prototype, "handleBioWebhook", null);
 __decorate([

@@ -207,6 +207,9 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
             bank: payment.bank,
             paidAt: payment.paidAt,
             paymentMethod: payment.paymentMethod,
+            provider: payment.provider,
+            failureCode: payment.failureCode,
+            failedAt: payment.failedAt,
         };
     }
     async cancelPayment(paymentId, deviceId) {
@@ -308,15 +311,15 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         this.logger.log(`[PhaJayWebhook] PROCESSED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerStatus, localStatus: payment.status })}`);
         return { message: 'OK' };
     }
-    async handleBioWebhook(payload, rawBody) {
+    async handleBioWebhook(payload, meta) {
         const demoMode = process.env.BIO_DEMO_MODE?.trim().toLowerCase() === 'true';
-        this.logger.log(`[BioWebhook] RECEIVED ${JSON.stringify({
+        this.logger.log(`[BioWebhook] BODY ${JSON.stringify({
             receivedAt: new Date().toISOString(),
             demoMode,
-            hasRawBody: Boolean(rawBody),
-            rawBody: rawBody?.toString('utf8'),
+            hasRawBody: Boolean(meta?.rawBody),
             payload,
         })}`);
+        this.verifyBioWebhookSignature(meta);
         const orderNo = this.toOptionalString(payload.orderNo);
         const transactionId = this.toOptionalString(payload.transactionId);
         const paidAmount = Number(payload.amount ?? payload.txnAmount);
@@ -335,14 +338,26 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         payment.webhookPayloads = [...(payment.webhookPayloads || []), payload];
         payment.provider = payment_transaction_schema_1.PaymentProvider.BIO;
         payment.providerTransactionId = transactionId || payment.providerTransactionId;
+        const event = this.toOptionalString(payload.event);
+        const failureCode = this.toOptionalString(payload.failureCode) || 'UNKNOWN';
         const currency = this.toOptionalString(payload.currency);
         const idFromProvider = this.toOptionalString(payload.deviceId) || this.toOptionalString(payload.terminalId);
-        const idMatches = Boolean(idFromProvider &&
-            [payment.deviceId, process.env.BIO_DEVICE_ID?.trim()].includes(idFromProvider));
         const amountMatches = Number.isFinite(paidAmount) && paidAmount === payment.amount;
-        const validPayment = demoMode
-            ? idMatches || amountMatches
-            : payload.event === 'palm_payment.succeeded' && currency === 'LAK' && amountMatches;
+        if (event === 'palm_payment.failed') {
+            if (payment.status === payment_transaction_schema_1.PaymentStatus.WAITING) {
+                payment.status = payment_transaction_schema_1.PaymentStatus.FAILED;
+                payment.failureCode = failureCode;
+                payment.failedAt = this.toProviderDate(payload.failedAt) || new Date();
+                await payment.save();
+                this.emitPaymentUpdate(payment);
+                this.logger.log(`[BioWebhook] PAYMENT_FAILED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, failureCode, transactionId })}`);
+            }
+            else {
+                await payment.save();
+            }
+            return { message: 'OK' };
+        }
+        const validPayment = event === 'palm_payment.succeeded' && currency === 'LAK' && amountMatches;
         if (!validPayment) {
             this.logger.warn(`[BioWebhook] IGNORED ${JSON.stringify({ paymentId: String(payment._id), orderNo: payment.orderNo, providerEvent: payload.event, currency, paidAmount, expectedAmount: payment.amount, idFromProvider, payload })}`);
             return { message: 'IGNORED' };
@@ -494,6 +509,29 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
             ? String(value)
             : undefined;
     }
+    toProviderDate(value) {
+        const text = this.toOptionalString(value);
+        if (!text)
+            return undefined;
+        const date = new Date(text);
+        return Number.isNaN(date.getTime()) ? undefined : date;
+    }
+    verifyBioWebhookSignature(meta) {
+        const secret = process.env.BIO_WEBHOOK_SECRET?.trim();
+        if (!secret) {
+            this.logger.warn('[BioWebhook] BIO_WEBHOOK_SECRET is not configured; accepting unsigned webhook');
+            return;
+        }
+        const signature = meta?.headers?.['x-webhook-signature'];
+        const received = Array.isArray(signature) ? signature[0] : signature;
+        if (!meta?.rawBody || !received || !/^[a-f0-9]{64}$/i.test(received)) {
+            throw new common_1.UnauthorizedException('Invalid Bio webhook signature');
+        }
+        const expected = (0, node_crypto_1.createHmac)('sha256', secret).update(meta.rawBody).digest('hex');
+        if (!(0, node_crypto_1.timingSafeEqual)(Buffer.from(expected, 'hex'), Buffer.from(received, 'hex'))) {
+            throw new common_1.UnauthorizedException('Invalid Bio webhook signature');
+        }
+    }
     emitPaymentUpdate(payment) {
         this.gateway.emitPaymentUpdate(payment.deviceId, {
             paymentId: String(payment._id),
@@ -502,6 +540,9 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
             status: payment.status,
             paidAt: payment.paidAt,
             paymentMethod: payment.paymentMethod,
+            provider: payment.provider,
+            failureCode: payment.failureCode,
+            failedAt: payment.failedAt,
         });
     }
 };

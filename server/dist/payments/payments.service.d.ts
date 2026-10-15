@@ -47,6 +47,9 @@ export declare class PaymentsService {
         bank: string | undefined;
         paidAt: Date | undefined;
         paymentMethod: string | undefined;
+        provider: PaymentProvider;
+        failureCode: string | undefined;
+        failedAt: Date | undefined;
     }>;
     cancelPayment(paymentId: string, deviceId: string): Promise<{
         paymentId: string;
@@ -77,7 +80,10 @@ export declare class PaymentsService {
     }): Promise<{
         message: string;
     }>;
-    handleBioWebhook(payload: Record<string, unknown>, rawBody?: Buffer): Promise<{
+    handleBioWebhook(payload: Record<string, unknown>, meta?: {
+        rawBody?: Buffer;
+        headers?: Record<string, string | string[] | undefined>;
+    }): Promise<{
         message: string;
     }>;
     private requestBioIntent;
@@ -88,5 +94,7 @@ export declare class PaymentsService {
     private getQrBank;
     private getQueryParam;
     private toOptionalString;
+    private toProviderDate;
+    private verifyBioWebhookSignature;
     private emitPaymentUpdate;
 }
