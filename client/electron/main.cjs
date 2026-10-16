@@ -53,7 +53,11 @@ async function renderReceiptImage(html, paperWidth) {
   try {
     await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
     await win.webContents.executeJavaScript('document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))');
-    await win.webContents.setZoomFactor(1.9);
+    // Map the CSS millimetres used by receiptHtml to the full printer raster.
+    // A fixed zoom left unused columns on 80mm paper (the same narrow look as
+    // a 58mm receipt).
+    const contentWidthMm = paperWidth - 4;
+    await win.webContents.setZoomFactor(width / (contentWidthMm * 96 / 25.4));
     await win.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     const height = await win.webContents.executeJavaScript('Math.max(1, Math.min(12000, Math.ceil(document.body.getBoundingClientRect().height + 2)))');
     const image = await win.webContents.capturePage({ x: 0, y: 0, width, height });
@@ -100,6 +104,8 @@ async function printHtml(html, settings) {
     const pageHeight = Math.max(10000, Math.ceil((image.height / image.width) * settings.paperWidth * 1000) + tailAllowance);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Printer submission timed out; check paper before retry')), 30000);
+      // Keep Chromium's default single-copy/page handling: some Windows
+      // thermal drivers reject explicit pageRanges and cancel the job.
       win.webContents.print({ silent: true, deviceName: settings.deviceName, printBackground: true,
         margins: { marginType: 'none' }, pageSize: { width: settings.paperWidth * 1000, height: pageHeight } },
       (success, reason) => { clearTimeout(timer); success ? resolve() : reject(new Error(reason || 'Printer submission failed')); });

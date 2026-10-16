@@ -6,9 +6,9 @@ function receiptHtml(receipt, width, fontUrl, reprint = false) {
   if (receipt.items.reduce((sum, item) => sum + item.subtotal, 0) !== receipt.amount) throw new Error('Receipt total mismatch');
 
   const paperWidth = width === 58 ? 58 : 80;
-  // Keep a safe printable area for Windows thermal drivers. An 80mm roll
-  // commonly exposes about 68-72mm of reliable printable width.
-  const contentWidth = paperWidth - 12;
+  // Most 80mm ESC/POS heads print about 72-76mm. Keep only 2mm on
+  // either side so receipts do not render like a narrow 58mm ticket.
+  const contentWidth = paperWidth - 4;
   const paidDate = receipt.paidAt ? new Intl.DateTimeFormat('lo-LA', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Vientiane' }).format(new Date(receipt.paidAt)) : '';
   const paymentChannel = receipt.paymentChannel || (receipt.provider === 'bio' ? 'ຊີວະມິຕິ' : 'ອອນລາຍ');
   const number = value => new Intl.NumberFormat('lo-LA', { maximumFractionDigits: 0 }).format(value);
