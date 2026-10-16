@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 const scanWindow = 3 * time.Second
 
@@ -37,4 +40,17 @@ func captureStatus(ids []string) string {
 		return "IDLE"
 	}
 	return "STABLE"
+}
+
+// rankTagsByReadCount prioritizes tags the reader has seen repeatedly while
+// preserving every observed tag in the snapshot.
+func rankTagsByReadCount(ids []string, counts map[string]int) []string {
+	ranked := append([]string{}, ids...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if counts[ranked[i]] == counts[ranked[j]] {
+			return ranked[i] < ranked[j]
+		}
+		return counts[ranked[i]] > counts[ranked[j]]
+	})
+	return ranked
 }

@@ -27,16 +27,20 @@ Sign in to Admin, open the printer settings at `/admin/printer`, choose an OS-in
 
 ### Windows USB thermal printer (80 mm)
 
-The default **Windows driver** connection sends receipts through the Windows Print Spooler. For ESC/POS printers, the POS can also send receipts directly over network IP or a Windows COM port. Direct mode sends the receipt as a raster image, then sends paper-feed and cutter commands.
+The default **Windows driver** connection uses Electron's printer list and the driver's page/cutter settings. For ESC/POS printers, the POS can also send raw receipts through a Windows printer queue, network IP, or a Windows COM port. Raw mode sends the receipt as a raster image, then sends paper-feed and cutter commands.
+
+If the USB printer interface was changed to **WinUSB with Zadig**, select **USB via Zadig (ESC/POS)** instead of the Windows driver/queue connection. The app uses `escpos-usb` to discover USB printer-class devices and sends the raster receipt, feed, and cut bytes directly to the selected VID/PID. Choose a discovered VID/PID, or enter the hexadecimal VID and PID shown in Zadig or Windows Device Manager, then save and print a test. `USB008` is a Windows spooler port and is not used by this mode. Replacing a device's Windows printer driver with WinUSB can make its Windows printer queue unavailable; this is expected. If more than one connected device has the same VID/PID, unplug the other device before printing so the app cannot send a receipt to the wrong one.
 
 1. Install the printer's Windows driver or the manufacturer's setup utility, then connect the USB cable and power on the printer.
 2. In **Settings → Bluetooth & devices → Printers & scanners**, confirm that the printer appears and print a Windows test page. Rename it if the store needs a clear name, such as `POS-Thermal-80mm`.
 3. Open **Printing preferences** for that printer and set an 80 mm roll/custom paper size, zero or minimum margins, portrait orientation, and the cutter option if the driver exposes one. Disable “Fit to page” or scaling.
-4. Start the Electron POS, open **Admin → Printer**, select the Windows printer, choose **80 mm**, save, and press **Print test**. A new installation is selected automatically when Windows reports it as the default printer.
+4. Start the Electron POS, open **Admin → Printer**, select the Windows printer, choose **80 mm**, save, and press **Print test**. A USB queue is automatically offered in raw Windows queue mode when Windows reports a `USB###` port.
+
+If the Windows printer is named `PrinterPOS-80` on port `USB008` but Electron does not list it, choose **USB via Windows queue (ESC/POS)** and enter `PrinterPOS-80` as the queue name. Enter the printer **name**, not `USB008`: the latter is a Windows USB printer port, not a COM port. Raw queue mode sends ESC/POS and a cutter command through the Windows spooler without depending on Electron's printer enumeration. It requires a printer/driver queue that accepts RAW ESC/POS data; a Windows test page alone does not prove that. Test with paper and verify the receipt and cut before live sales.
 
 If Windows shows the device only under **Ports (COM & LPT)** and it does not appear in **Printers & scanners**, choose **COM/USB-Serial (ESC/POS)** in POS printer settings, refresh the COM list, and set the baud rate to match the printer. If the printer has a LAN port, choose **IP network (ESC/POS)** and enter its IP address and raw-print port (usually 9100). Keep the printer and POS on the same network and verify that raw printing is enabled in the printer configuration.
 
-The app bundles a Lao font (SIL Open Font License in `public/fonts/OFL.txt`). Both printing paths render Lao text as an image. Windows driver mode uses the driver's paper and Auto cut settings. Direct ESC/POS mode sends the image, three feed lines and a full-cut command; the printer must support ESC/POS raster printing and have a cutter installed/enabled. Printer enumeration confirms an installed driver or COM port, not physical connectivity or paper availability. Print a test receipt on the actual printer before using it for sales.
+The app bundles a Lao font (SIL Open Font License in `public/fonts/OFL.txt`). All printing paths render Lao text as an image. Windows driver mode uses the driver's paper and Auto cut settings. Raw ESC/POS mode sends the image, three feed lines and a full-cut command; the printer must support ESC/POS raster printing and have a cutter installed/enabled. Printer enumeration confirms a visible USB device, installed queue, or COM port, not paper availability. Print a test receipt on the actual printer before using it for sales.
 
 ## Configuration
 

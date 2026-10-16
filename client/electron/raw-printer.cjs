@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
+const { writeUsb } = require('./usb-printer.cjs');
 
 function rasterCommand(bitmap, width, height) {
   const bytesPerRow = Math.ceil(width / 8);
@@ -26,16 +27,40 @@ function rasterCommand(bitmap, width, height) {
   ]);
 }
 
-function runPowerShell(script, args = []) {
+function runPowerShell(script, variables = {}, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, ...args], { windowsHide: true });
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+      windowsHide: true,
+      env: { ...process.env, ...variables },
+    });
     let output = '';
     let error = '';
+    const timer = setTimeout(() => child.kill(), timeoutMs);
     child.stdout.on('data', chunk => { output += chunk.toString(); });
     child.stderr.on('data', chunk => { error += chunk.toString(); });
-    child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve(output) : reject(new Error(error.trim() || `PowerShell exited with code ${code}`)));
+    child.on('error', cause => { clearTimeout(timer); reject(cause); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      code === 0 ? resolve(output) : reject(new Error(error.trim() || `PowerShell printer command stopped or timed out after ${timeoutMs} ms`));
+    });
   });
+}
+
+async function listWindowsPrinters() {
+  if (process.platform !== 'win32') return [];
+  const script = `
+$ErrorActionPreference = 'Stop'
+@(Get-CimInstance Win32_Printer | ForEach-Object {
+  [pscustomobject]@{ name = $_.Name; displayName = $_.Name; portName = $_.PortName; isDefault = [bool]$_.Default; status = [int]$_.PrinterStatus }
+}) | ConvertTo-Json -Compress
+`;
+  try {
+    const parsed = JSON.parse((await runPowerShell(script, {}, 15000)).trim());
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter(item => item?.name);
+  } catch {
+    return [];
+  }
 }
 
 async function listSerialPorts() {
@@ -49,7 +74,7 @@ async function listSerialPorts() {
     '$ports | ConvertTo-Json -Compress',
   ].join('; ');
   try {
-    const output = (await runPowerShell(script)).trim();
+    const output = (await runPowerShell(script, {}, 15000)).trim();
     if (!output) return [];
     const parsed = JSON.parse(output);
     return (Array.isArray(parsed) ? parsed : [parsed]).filter(item => item?.path).map(item => ({ path: item.path, displayName: item.displayName || item.path }));
@@ -74,8 +99,62 @@ function writeNetwork(data, printerIp, printerPort = 9100) {
   });
 }
 
-async function printRaster({ bitmap, width, height, connection = 'serial', portPath = 'COM1', baudRate = 115200, printerIp, printerPort = 9100 }) {
-  if (connection === 'serial' && process.platform !== 'win32') throw new Error('Raw COM printer requires Windows');
+async function writeWindowsQueue(file, printerName) {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class RawPosPrinter {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct DocInfo {
+    [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
+    [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
+    [MarshalAs(UnmanagedType.LPWStr)] public string pDatatype;
+  }
+  [DllImport("winspool.drv", EntryPoint = "OpenPrinterW", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern bool OpenPrinter(string name, out IntPtr handle, IntPtr defaults);
+  [DllImport("winspool.drv", EntryPoint = "StartDocPrinterW", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern int StartDocPrinter(IntPtr handle, int level, ref DocInfo info);
+  [DllImport("winspool.drv", SetLastError = true)]
+  private static extern bool StartPagePrinter(IntPtr handle);
+  [DllImport("winspool.drv", SetLastError = true)]
+  private static extern bool WritePrinter(IntPtr handle, byte[] data, int count, out int written);
+  [DllImport("winspool.drv", SetLastError = true)]
+  private static extern bool EndPagePrinter(IntPtr handle);
+  [DllImport("winspool.drv", SetLastError = true)]
+  private static extern bool EndDocPrinter(IntPtr handle);
+  [DllImport("winspool.drv", SetLastError = true)]
+  private static extern bool ClosePrinter(IntPtr handle);
+
+  public static void Send(string name, byte[] data) {
+    IntPtr handle;
+    if (!OpenPrinter(name, out handle, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    try {
+      var info = new DocInfo { pDocName = "4B POS Receipt", pDatatype = "RAW" };
+      if (StartDocPrinter(handle, 1, ref info) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+      try {
+        if (!StartPagePrinter(handle)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+          int written;
+          if (!WritePrinter(handle, data, data.Length, out written)) throw new Win32Exception(Marshal.GetLastWin32Error());
+          if (written != data.Length) throw new Exception("Incomplete printer write");
+        } finally { EndPagePrinter(handle); }
+      } finally { EndDocPrinter(handle); }
+    } finally { ClosePrinter(handle); }
+  }
+}
+'@
+[RawPosPrinter]::Send($env:POS_PRINTER_NAME, [System.IO.File]::ReadAllBytes($env:POS_PRINT_DATA_PATH))
+`;
+  await runPowerShell(script, { POS_PRINTER_NAME: printerName, POS_PRINT_DATA_PATH: file });
+}
+
+async function printRaster({ bitmap, width, height, connection = 'serial', portPath = 'COM1', baudRate = 115200, printerIp, printerPort = 9100, printerName, usbVendorId, usbProductId }) {
+  if (['serial', 'spooler'].includes(connection) && process.platform !== 'win32') throw new Error('Raw Windows printer requires Windows');
+  if (!['serial', 'network', 'spooler', 'usb'].includes(connection)) throw new Error('Unknown raw printer connection');
   if (!Buffer.isBuffer(bitmap) || bitmap.length !== width * height * 4 || width <= 0 || height <= 0 || height > 65535) {
     throw new Error('Invalid receipt bitmap dimensions');
   }
@@ -91,25 +170,34 @@ async function printRaster({ bitmap, width, height, connection = 'serial', portP
     await writeNetwork(data, printerIp, printerPort);
     return;
   }
+  if (connection === 'usb') {
+    await writeUsb(data, usbVendorId, usbProductId);
+    return;
+  }
   await fs.writeFile(file, data);
   try {
+    if (connection === 'spooler') {
+      if (!printerName || !printerName.trim()) throw new Error('ກະລຸນາໃສ່ຊື່ຄິວເຄື່ອງພິມ Windows');
+      await writeWindowsQueue(file, printerName.trim());
+      return;
+    }
     const script = [
       '$ErrorActionPreference = "Stop"',
       'Add-Type -AssemblyName System.IO.Ports',
-      '$port = New-Object System.IO.Ports.SerialPort($args[0], [int]$args[1], [System.IO.Ports.Parity]::None, 8, [System.IO.Ports.StopBits]::One)',
+      '$port = New-Object System.IO.Ports.SerialPort($env:POS_SERIAL_PORT, [int]$env:POS_SERIAL_BAUD, [System.IO.Ports.Parity]::None, 8, [System.IO.Ports.StopBits]::One)',
       '$port.Handshake = [System.IO.Ports.Handshake]::None',
       '$port.WriteTimeout = 60000',
       '$port.Open()',
-      '$bytes = [System.IO.File]::ReadAllBytes($args[2])',
+      '$bytes = [System.IO.File]::ReadAllBytes($env:POS_PRINT_DATA_PATH)',
       '$port.Write($bytes, 0, $bytes.Length)',
-      '$drainMs = [Math]::Ceiling(($bytes.Length * 10 * 1000) / [int]$args[1]) + 500',
+      '$drainMs = [Math]::Ceiling(($bytes.Length * 10 * 1000) / [int]$env:POS_SERIAL_BAUD) + 500',
       'Start-Sleep -Milliseconds $drainMs',
       '$port.Close()',
     ].join('; ');
-    await runPowerShell(script, [portPath, String(baudRate), file]);
+    await runPowerShell(script, { POS_SERIAL_PORT: portPath, POS_SERIAL_BAUD: String(baudRate), POS_PRINT_DATA_PATH: file });
   } finally {
     await fs.rm(file, { force: true });
   }
 }
 
-module.exports = { listSerialPorts, printRaster };
+module.exports = { listSerialPorts, listWindowsPrinters, printRaster };

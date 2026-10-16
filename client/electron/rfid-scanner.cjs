@@ -7,9 +7,9 @@ function executableCandidates() {
   const name = process.platform === 'win32' ? 'cart_scanner.exe' : 'cart_scanner';
   return [
     process.env.RFID_SCANNER_PATH,
-    process.platform === 'win32' ? path.join('C:\\', 'hub_scanner', 'cart_scanner.exe') : null,
     path.join(process.resourcesPath, 'rfid', name),
     path.join(__dirname, 'bin', name),
+    process.platform === 'win32' ? path.join('C:\\', 'hub_scanner', 'cart_scanner.exe') : null,
     path.join(__dirname, '../../hub_scanner', name),
     path.join(__dirname, '../../hub_scanner', 'cart_scanner'),
   ].filter(Boolean);

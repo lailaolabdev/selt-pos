@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('posDesktop', {
   listPrinters: () => ipcRenderer.invoke('printer:list'),
   listSerialPorts: () => ipcRenderer.invoke('printer:ports'),
+  listUsbPrinters: () => ipcRenderer.invoke('printer:usb'),
   getState: () => ipcRenderer.invoke('printer:state'),
   configure: settings => ipcRenderer.invoke('printer:configure', settings),
   printReceipt: paymentId => ipcRenderer.invoke('printer:enqueue', paymentId),

@@ -5,7 +5,8 @@ const http = require('node:http');
 const { PrintQueue } = require('./queue.cjs');
 const { receiptHtml } = require('./receipt.cjs');
 const { RfidScanner } = require('./rfid-scanner.cjs');
-const { listSerialPorts, printRaster } = require('./raw-printer.cjs');
+const { listSerialPorts, listWindowsPrinters, printRaster } = require('./raw-printer.cjs');
+const { listUsbPrinters } = require('./usb-printer.cjs');
 const apiUrl = (process.env.POS_API_URL || 'https://api-seltpos.soudev.site').replace(/\/$/, '');
 let mainWindow, paymentWindow, server, queue, rfidScanner, origin;
 const idPattern = /^[a-f0-9]{24}$/i;
@@ -69,16 +70,19 @@ function imagePrintHtml(image) {
 async function printHtml(html, settings) {
   if (settings.adapter === 'mock') return 'mock';
   const image = await renderReceiptImage(html, settings.paperWidth);
-  if (settings.adapter === 'raw-network' || settings.adapter === 'raw-serial') {
+  if (['raw-network', 'raw-serial', 'raw-spooler', 'raw-usb'].includes(settings.adapter)) {
     await printRaster({
       bitmap: image.bitmap,
       width: image.width,
       height: image.height,
-      connection: settings.adapter === 'raw-network' ? 'network' : 'serial',
+      connection: settings.adapter === 'raw-network' ? 'network' : settings.adapter === 'raw-spooler' ? 'spooler' : settings.adapter === 'raw-usb' ? 'usb' : 'serial',
+      printerName: settings.deviceName,
       printerIp: settings.printerIp,
       printerPort: settings.printerPort,
       portPath: settings.portPath,
       baudRate: settings.baudRate,
+      usbVendorId: settings.adapter === 'raw-usb' ? Number.parseInt(settings.usbVendorId, 16) : undefined,
+      usbProductId: settings.adapter === 'raw-usb' ? Number.parseInt(settings.usbProductId, 16) : undefined,
     });
     return 'submitted';
   }
@@ -127,23 +131,43 @@ async function createWindow() {
     onEvent: (type, data) => mainWindow?.webContents.send('rfid:event', { type, data }),
   });
   handle('printer:list', async () => {
-    return (await mainWindow.webContents.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: p.isDefault, status: p.status }));
+    const [electronPrinters, windowsPrinters] = await Promise.all([
+      mainWindow.webContents.getPrintersAsync().catch(() => []),
+      listWindowsPrinters(),
+    ]);
+    const windowsByName = new Map(windowsPrinters.map(printer => [printer.name.toLowerCase(), printer]));
+    const merged = electronPrinters.map(printer => ({
+      name: printer.name,
+      displayName: printer.displayName,
+      isDefault: printer.isDefault,
+      status: printer.status,
+      portName: windowsByName.get(printer.name.toLowerCase())?.portName,
+    }));
+    const known = new Set(merged.map(printer => printer.name.toLowerCase()));
+    for (const printer of windowsPrinters) if (!known.has(printer.name.toLowerCase())) merged.push(printer);
+    return merged;
   });
   handle('printer:ports', () => listSerialPorts());
+  handle('printer:usb', () => listUsbPrinters());
   handle('printer:state', () => ({ settings: queue.state.settings, jobs: queue.state.jobs.slice(-100).reverse() }));
   handle('printer:configure', settings => queue.serial(async () => {
-    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'raw-network', 'raw-serial', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
+    if (!settings || ![58, 80].includes(settings.paperWidth) || !['system', 'raw-network', 'raw-serial', 'raw-spooler', 'raw-usb', 'mock'].includes(settings.adapter) || typeof settings.deviceName !== 'string') throw new Error('Invalid printer settings');
     if (settings.adapter === 'system' && !(await mainWindow.webContents.getPrintersAsync()).some(p => p.name === settings.deviceName)) throw new Error('Unknown printer');
+    if (settings.adapter === 'raw-spooler' && (process.platform !== 'win32' || !settings.deviceName.trim())) throw new Error('ກະລຸນາໃສ່ຊື່ຄິວເຄື່ອງພິມ Windows');
     if (settings.adapter === 'raw-network' && (!settings.printerIp || !require('node:net').isIP(settings.printerIp) || !Number.isInteger(Number(settings.printerPort)) || Number(settings.printerPort) < 1 || Number(settings.printerPort) > 65535)) throw new Error('Enter a valid printer IP and port');
     if (settings.adapter === 'raw-serial' && (process.platform !== 'win32' || !/^COM\d+$/i.test(settings.portPath || '') || ![9600, 19200, 38400, 57600, 115200].includes(Number(settings.baudRate)))) throw new Error('Select a valid Windows COM port and baud rate');
+    const usbIdPattern = /^(?:0x)?[0-9a-f]{1,4}$/i;
+    if (settings.adapter === 'raw-usb' && (typeof settings.usbVendorId !== 'string' || typeof settings.usbProductId !== 'string' || !usbIdPattern.test(settings.usbVendorId) || !usbIdPattern.test(settings.usbProductId) || !Number.parseInt(settings.usbVendorId.replace(/^0x/i, ''), 16) || !Number.parseInt(settings.usbProductId.replace(/^0x/i, ''), 16))) throw new Error('ກະລຸນາໃສ່ VID ແລະ PID ຂອງເຄື່ອງພິມ USB');
     queue.state.settings = {
-      deviceName: settings.deviceName,
+      deviceName: settings.deviceName.trim(),
       paperWidth: settings.paperWidth,
       adapter: settings.adapter,
       printerIp: settings.adapter === 'raw-network' ? settings.printerIp : undefined,
       printerPort: settings.adapter === 'raw-network' ? Number(settings.printerPort) : undefined,
       portPath: settings.adapter === 'raw-serial' ? settings.portPath.toUpperCase() : undefined,
       baudRate: settings.adapter === 'raw-serial' ? Number(settings.baudRate) : undefined,
+      usbVendorId: settings.adapter === 'raw-usb' ? Number.parseInt(settings.usbVendorId.replace(/^0x/i, ''), 16).toString(16).padStart(4, '0') : undefined,
+      usbProductId: settings.adapter === 'raw-usb' ? Number.parseInt(settings.usbProductId.replace(/^0x/i, ''), 16).toString(16).padStart(4, '0') : undefined,
     }; queue.save(); return queue.state.settings;
   }));
   handle('printer:enqueue', id => { if (typeof id !== 'string' || !idPattern.test(id)) throw new Error('Invalid payment id'); return queue.enqueue(id); });
@@ -179,7 +203,7 @@ async function createWindow() {
     queue.state.settings = { deviceName: '', paperWidth: queue.state.settings.paperWidth || 58, adapter: 'system' };
     queue.save();
   }
-  const installedPrinters = await mainWindow.webContents.getPrintersAsync();
+  const installedPrinters = await mainWindow.webContents.getPrintersAsync().catch(() => []);
   const currentPrinter = queue.state.settings.deviceName;
   if (queue.state.settings.adapter === 'system' && !currentPrinter && installedPrinters.length) {
     const defaultPrinter = installedPrinters.find(printer => [printer.name, printer.displayName].some(value => String(value || '').trim().toLowerCase() === 'pos 80'))

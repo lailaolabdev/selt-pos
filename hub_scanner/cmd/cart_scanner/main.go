@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.bug.st/serial"
@@ -32,9 +33,12 @@ var (
 	// driver is never reconfigured while a basket is being read. Set
 	// RFID_BAUD explicitly when using a reader with another speed.
 	BaudRates = []int{9600}
+	logMu     sync.Mutex
 )
 
 func logThrottled(key string, interval time.Duration, format string, args ...interface{}) {
+	logMu.Lock()
+	defer logMu.Unlock()
 	now := time.Now()
 	if previous, ok := logTimestamps[key]; ok && now.Sub(previous) < interval {
 		return
@@ -272,15 +276,64 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 	decoder := tagDecoder{}
 	detection := newBaudDetection(bauds, initialBaud, time.Now())
 	bytesSinceCheck := 0
-	lastSyncAttempt := time.Time{}
-	needsSync := false
 	batch := scanBatch{}
+	readCounts := make(map[string]int)
 	// Push changed tag sets quickly for the POS socket, while keeping the
 	// three-second batch as the authoritative STABLE snapshot.
 	realtimeUpdates := len(portName) > 0
 	lastScanningIDs := []string{}
 	lastTagChangeAt := time.Time{}
-	lastModePoll := time.Time{}
+	modeUpdates := make(chan string, 1)
+	go func() {
+		for {
+			mode := fetchSessionMode()
+			select {
+			case modeUpdates <- mode:
+			default:
+				select {
+				case <-modeUpdates:
+				default:
+				}
+				select {
+				case modeUpdates <- mode:
+				default:
+				}
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+	type captureUpdate struct {
+		ids    []string
+		status string
+	}
+	captureQueue := make(chan captureUpdate, 1)
+	queueCapture := func(ids []string, status string) {
+		update := captureUpdate{append([]string{}, ids...), status}
+		select {
+		case captureQueue <- update:
+		default:
+			select {
+			case <-captureQueue:
+			default:
+			}
+			select {
+			case captureQueue <- update:
+			default:
+			}
+		}
+	}
+	go func() {
+		for update := range captureQueue {
+			for !sendCaptureToServer(update.ids, update.status) {
+				// While retrying, keep only the latest complete basket snapshot.
+				select {
+				case update = <-captureQueue:
+				default:
+					time.Sleep(2 * time.Second)
+				}
+			}
+		}
+	}()
 	const scanUpdateDebounce = 350 * time.Millisecond
 	rawLogging := strings.ToLower(strings.TrimSpace(os.Getenv("RFID_RAW_LOG")))
 	showRawData := rawLogging == "1" || rawLogging == "true" || rawLogging == "on" || rawLogging == "yes"
@@ -289,26 +342,28 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 	for {
 		n, err := port.Read(buf)
 
-		if err != nil {
-			fmt.Println("❌ Serial read error:", err, "— reconnect the reader and restart scanner.")
-			return
-		}
-
 		nowRead := time.Now()
-		if lastModePoll.IsZero() || nowRead.Sub(lastModePoll) >= time.Second {
+		select {
+		case newMode := <-modeUpdates:
 			previousMode := sessionMode
-			refreshSessionMode()
+			if newMode != "" {
+				sessionMode = newMode
+			}
 			if previousMode != sessionMode && sessionMode != "" {
+				if previousMode == "" {
+					fmt.Printf("📡 POS RFID mode: %s\n", sessionMode)
+				} else {
+					fmt.Printf("🔄 POS RFID mode changed: %s -> %s\n", previousMode, sessionMode)
+				}
 				// A POS Start/Stop creates a new scan session. Do not carry tags
 				// observed before that button press into the next basket.
 				tagLastSeen = make(map[string]time.Time)
 				batch = scanBatch{}
 				lastScanningIDs = nil
 				lastTagChangeAt = time.Time{}
-				needsSync = false
 				fmt.Printf("🧹 RFID local scan state reset for POS mode %s\n", sessionMode)
 			}
-			lastModePoll = nowRead
+		default:
 		}
 		if n > 0 {
 			lastAnyTagTime = nowRead
@@ -319,6 +374,7 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 				fmt.Printf("🧾 RAW TAG DATA: bytes=%d | HEX: % X | TEXT: %q\n", n, buf[:n], buf[:n])
 			}
 			for _, tagID := range decoder.feed(buf[:n]) {
+				readCounts[tagID]++
 				if !detection.confirmed {
 					detection.confirmed = true
 					reportedReaderIssue = false
@@ -395,29 +451,21 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 			lastTagChangeAt = now
 		}
 		if realtimeUpdates && !lastTagChangeAt.IsZero() && now.Sub(lastTagChangeAt) >= scanUpdateDebounce && !sameTagIDs(activeIDsAfter, lastScanningIDs) {
-			if sendCaptureToServer(activeIDsAfter, "SCANNING") {
-				lastScanningIDs = append([]string{}, activeIDsAfter...)
-				lastTagChangeAt = time.Time{}
-			} else {
-				lastTagChangeAt = now
-			}
+			queueCapture(rankTagsByReadCount(activeIDsAfter, readCounts), "SCANNING")
+			lastScanningIDs = append([]string{}, activeIDsAfter...)
+			lastTagChangeAt = time.Time{}
 		}
 		if ids, ready := batch.take(now); ready {
+			observedIDs := append([]string{}, ids...)
+			ids = rankTagsByReadCount(ids, readCounts)
 			status := captureStatus(ids)
 			isStable = len(ids) > 0
-			needsSync = !sendCaptureToServer(ids, status)
-			if realtimeUpdates && !needsSync {
-				lastScanningIDs = append([]string{}, ids...)
+			queueCapture(ids, status)
+			clear(readCounts)
+			if realtimeUpdates {
+				lastScanningIDs = observedIDs
 				lastTagChangeAt = time.Time{}
 			}
-			lastSyncAttempt = time.Now()
-		}
-
-		// Only refresh/retry a settled basket. A newly changed set must complete
-		// its collection window before being sent to the server.
-		if !batch.pending && needsSync && time.Since(lastSyncAttempt) >= 5*time.Second {
-			needsSync = !sendCaptureToServer(activeIDsAfter, captureStatus(activeIDsAfter))
-			lastSyncAttempt = time.Now()
 		}
 
 		if n == 0 {
@@ -458,33 +506,25 @@ func sendCaptureToServer(tagIds []string, status string) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300 && readErr == nil
 }
 
-func refreshSessionMode() {
+func fetchSessionMode() string {
 	baseURL := strings.TrimSuffix(serverURL, "/tags/capture")
 	snapshotURL := strings.TrimRight(baseURL, "/") + "/session/" + url.PathEscape(deviceID) + "/snapshot"
 	resp, err := captureClient.Get(snapshotURL)
 	if err != nil {
 		logThrottled("session-mode-network", 30*time.Second, "⚠️ Could not read POS RFID session mode: %v\n", err)
-		return
+		return ""
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		logThrottled("session-mode-rejected", 30*time.Second, "⚠️ POS RFID session mode rejected: %s\n", resp.Status)
-		return
+		return ""
 	}
 	var snapshot struct {
 		Mode string `json:"mode"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&snapshot); err != nil || snapshot.Mode == "" {
 		logThrottled("session-mode-invalid", 30*time.Second, "⚠️ Invalid POS RFID session mode response\n")
-		return
+		return ""
 	}
-	if snapshot.Mode != sessionMode {
-		previous := sessionMode
-		sessionMode = snapshot.Mode
-		if previous == "" {
-			fmt.Printf("📡 POS RFID mode: %s\n", sessionMode)
-		} else {
-			fmt.Printf("🔄 POS RFID mode changed: %s -> %s\n", previous, sessionMode)
-		}
-	}
+	return snapshot.Mode
 }

@@ -1,7 +1,7 @@
 {
   "name": "4b-pos-business",
   "private": true,
-  "version": "0.0.6",
+  "version": "0.0.9",
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5173",
@@ -14,7 +14,7 @@
     "desktop:pack": "npm run build && electron-builder --dir",
     "desktop:dist": "npm run build && electron-builder",
     "desktop:dist:win": "npm run build && electron-builder --win nsis --x64",
-    "test:printer": "node --test electron/queue.test.cjs",
+    "test:printer": "node --test electron/*.test.cjs",
     "test:desktop": "node scripts/desktop-check.cjs",
     "test:rfid": "npm --prefix ../server run build && node scripts/rfid-check.cjs"
   },
@@ -23,6 +23,7 @@
     "@tanstack/react-query": "^5.90.21",
     "axios": "^1.13.6",
     "clsx": "^2.1.1",
+    "escpos-usb": "3.0.0-alpha.4",
     "lucide-react": "^0.577.0",
     "motion": "^13.1.1",
     "qrcode.react": "^4.2.0",
@@ -31,7 +32,16 @@
     "react-router-dom": "^7.13.1",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.5.0",
+    "usb": "2.19.1",
     "zustand": "^5.0.11"
+  },
+  "overrides": {
+    "usb": "2.19.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "usb": "2.19.1"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -60,6 +70,8 @@
   "main": "electron/main.cjs",
   "description": "4B POS Business kiosk with RFID checkout and local receipt printing",
   "build": {
+    "npmRebuild": false,
+    "asarUnpack": ["**/usb/prebuilds/**/*"],
     "appId": "la.4b.posbusiness",
     "productName": "4B POS Business",
     "icon": "public/logo.ico",
