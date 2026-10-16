@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, nativeImage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
@@ -49,19 +49,37 @@ async function prepare(receipt, settings, reprint = false) {
 
 async function renderReceiptImage(html, paperWidth) {
   const width = paperWidth === 58 ? 384 : 576;
+  const canvasLibrary = fs.readFileSync(require.resolve('html2canvas/dist/html2canvas.min.js'), 'utf8')
+    .replace(/<\/script/gi, '<\\/script');
+  const renderScript = `<script>${canvasLibrary}</script><script>
+    window.__renderReceiptCanvas = async () => {
+      await document.fonts.ready;
+      const body = document.body;
+      const bounds = body.getBoundingClientRect();
+      const canvas = await html2canvas(body, {
+        backgroundColor: '#ffffff',
+        logging: false,
+        scale: ${width} / bounds.width,
+        width: bounds.width,
+        height: bounds.height,
+        windowWidth: document.documentElement.clientWidth,
+      });
+      return canvas.toDataURL('image/png');
+    };
+  </script>`;
+  const renderHtml = html.replace('</body>', `${renderScript}</body>`);
   const win = new BrowserWindow({ show: false, width, height: 4000, webPreferences: securePrefs });
   try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    await win.webContents.executeJavaScript('document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))');
-    // Map the CSS millimetres used by receiptHtml to the full printer raster.
-    // A fixed zoom left unused columns on 80mm paper (the same narrow look as
-    // a 58mm receipt).
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(renderHtml));
     const contentWidthMm = paperWidth - 4;
     await win.webContents.setZoomFactor(width / (contentWidthMm * 96 / 25.4));
-    await win.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-    const height = await win.webContents.executeJavaScript('Math.max(1, Math.min(12000, Math.ceil(document.body.getBoundingClientRect().height + 2)))');
-    const image = await win.webContents.capturePage({ x: 0, y: 0, width, height });
-    return { data: image.toPNG().toString('base64'), bitmap: image.getBitmap(), width, height };
+    const dataUrl = await win.webContents.executeJavaScript('window.__renderReceiptCanvas()');
+    const image = nativeImage.createFromDataURL(dataUrl);
+    const { width: imageWidth, height: imageHeight } = image.getSize();
+    if (image.isEmpty() || imageWidth <= 0 || imageHeight <= 0 || imageHeight > 12000) {
+      throw new Error('Could not render receipt with html2canvas');
+    }
+    return { data: image.toPNG().toString('base64'), bitmap: image.getBitmap(), width: imageWidth, height: imageHeight };
   } finally {
     win.destroy();
   }

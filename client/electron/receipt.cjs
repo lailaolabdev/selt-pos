@@ -15,7 +15,7 @@ function receiptHtml(receipt, width, fontUrl, reprint = false) {
   const money = value => `${number(value)} ກີບ`;
   const itemRows = receipt.items.map(item => `<tr class="item"><td class="name">${escape(item.name)}</td><td class="qty">${item.count}</td><td class="unit">${number(item.subtotal / item.count)}</td><td class="amount">${number(item.subtotal)}</td></tr>`).join('');
 
-  return `<!doctype html><html lang="lo"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:"><style>
+  return `<!doctype html><html lang="lo"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:"><style>
   @font-face{font-family:Lao;src:url('${fontUrl}')} @page{size:${paperWidth}mm auto;margin:0}
   *{box-sizing:border-box} html,body{margin:0;padding:0;background:#fff} body{width:${contentWidth}mm;margin:0 auto;padding:2mm 0 1.5mm;font:12px Lao,sans-serif;color:#000;line-height:1.3}
   .center{text-align:center}.shop{margin:0;font-size:24px;line-height:1.05;font-weight:900;letter-spacing:.2px}.title{margin:2px 0 0;font-size:15px;line-height:1.15;font-weight:900}.welcome{font-size:10px;font-weight:700}.copy{font-size:9px;font-weight:700}

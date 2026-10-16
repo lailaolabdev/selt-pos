@@ -1,7 +1,7 @@
 {
   "name": "4b-pos-business",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5173",
@@ -24,6 +24,7 @@
     "axios": "^1.13.6",
     "clsx": "^2.1.1",
     "escpos-usb": "3.0.0-alpha.4",
+    "html2canvas": "^1.4.1",
     "lucide-react": "^0.577.0",
     "motion": "^13.1.1",
     "qrcode.react": "^4.2.0",
