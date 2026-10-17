@@ -23,8 +23,8 @@ var (
 	lastNewTagTime time.Time
 	isStable       bool
 	logTimestamps  = make(map[string]time.Time)
-	// serverURL      = "https://api-seltpos.soudev.site/tags/capture"
-	serverURL = "http://localhost:3000/tags/capture"
+	serverURL      = "https://api-seltpos.soudev.site/tags/capture"
+	// serverURL = "http://localhost:3000/tags/capture"
 
 	deviceID      = "RPi-POS-01"
 	sessionMode   string
