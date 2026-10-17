@@ -138,6 +138,20 @@ let SessionsService = class SessionsService {
                     : 'STABLE';
         session.lastCapturedAt = now;
         await session.save();
+        if (session.currentMode === session_schema_1.DeviceMode.CHECKOUT &&
+            cleanTagIds.length > 0 &&
+            status === 'SCANNING') {
+            this.gateway.emitScanUpdate(deviceId, {
+                tagIds: cleanTagIds,
+                lastCapturedAt: session.lastCapturedAt,
+                mode: session.currentMode,
+                result: { tagIds: cleanTagIds, scannedTagIds: cleanTagIds },
+                status: 'SCANNING',
+                basketId,
+                basketKey,
+                isNewBasket,
+            });
+        }
         let result;
         switch (session.currentMode) {
             case session_schema_1.DeviceMode.ADD:

@@ -23,8 +23,9 @@ var (
 	lastNewTagTime time.Time
 	isStable       bool
 	logTimestamps  = make(map[string]time.Time)
-	serverURL      = "https://api-seltpos.soudev.site/tags/capture"
-	// serverURL     = "http://localhost:3000/tags/capture"
+	// serverURL      = "https://api-seltpos.soudev.site/tags/capture"
+	serverURL = "http://localhost:3000/tags/capture"
+
 	deviceID      = "RPi-POS-01"
 	sessionMode   string
 	captureClient = &http.Client{Timeout: 5 * time.Second}
@@ -115,7 +116,12 @@ func sameTagIDs(a []string, b []string) bool {
 
 func main() {
 	if value := strings.TrimSpace(os.Getenv("RFID_SERVER_URL")); value != "" {
-		serverURL = strings.TrimRight(value, "/") + "/tags/capture"
+		captureURL, err := normalizeCaptureURL(value)
+		if err != nil {
+			fmt.Printf("❌ Invalid RFID_SERVER_URL %q: %v\n", value, err)
+			os.Exit(1)
+		}
+		serverURL = captureURL
 	}
 	if value := strings.TrimSpace(os.Getenv("RFID_DEVICE_ID")); value != "" {
 		deviceID = value
@@ -210,6 +216,23 @@ func main() {
 	fmt.Printf("📡 Server: %s | Device: %s\n", serverURL, deviceID)
 	fmt.Printf("🏷️ Place a tag on the reader and keep it there at %d baud.\n", connectedBaud)
 	monitorLoop(bauds, connectedBaud, connectedPort)
+}
+
+// RFID_SERVER_URL accepts either the API base URL or the complete capture URL.
+// The hub forwards tag snapshots only; the server session mode decides whether
+// they are used for stock checks/tag registration or a POS checkout basket.
+func normalizeCaptureURL(raw string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return "", fmt.Errorf("expected an http(s) API base URL or /tags/capture URL")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	if parsed.Path == "" {
+		parsed.Path = "/tags/capture"
+	} else if !strings.HasSuffix(parsed.Path, "/tags/capture") {
+		parsed.Path += "/tags/capture"
+	}
+	return parsed.String(), nil
 }
 
 func openSerialPort(name string, baud int) (serial.Port, error) {
@@ -338,6 +361,15 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 	rawLogging := strings.ToLower(strings.TrimSpace(os.Getenv("RFID_RAW_LOG")))
 	showRawData := rawLogging == "1" || rawLogging == "true" || rawLogging == "on" || rawLogging == "yes"
 	reportedReaderIssue := false
+	resetLocalScanState := func(reason string) {
+		tagLastSeen = make(map[string]time.Time)
+		batch = scanBatch{}
+		clear(readCounts)
+		lastScanningIDs = nil
+		lastTagChangeAt = time.Time{}
+		isStable = false
+		fmt.Printf("🧹 RFID local scan state reset (%s); waiting for fresh tag reads\n", reason)
+	}
 
 	for {
 		n, err := port.Read(buf)
@@ -355,13 +387,21 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 				} else {
 					fmt.Printf("🔄 POS RFID mode changed: %s -> %s\n", previousMode, sessionMode)
 				}
+				switch sessionMode {
+				case "ADD":
+					fmt.Println("📦 Operation: stock registration (link scanned tags to a product); no sale is performed by Go hub")
+				case "CHECK":
+					fmt.Println("📦 Operation: stock/tag check; no sale is performed by Go hub")
+				case "CHECKOUT":
+					fmt.Println("🧾 Operation: POS checkout basket; payment and sale confirmation are handled by the server")
+				case "PAYMENT":
+					fmt.Println("🔒 Operation: payment in progress; basket is locked")
+				case "IDLE":
+					fmt.Println("🛑 POS scan session ended. Scanner is IDLE and waiting for the next Start")
+				}
 				// A POS Start/Stop creates a new scan session. Do not carry tags
 				// observed before that button press into the next basket.
-				tagLastSeen = make(map[string]time.Time)
-				batch = scanBatch{}
-				lastScanningIDs = nil
-				lastTagChangeAt = time.Time{}
-				fmt.Printf("🧹 RFID local scan state reset for POS mode %s\n", sessionMode)
+				resetLocalScanState("POS mode " + sessionMode)
 			}
 		default:
 		}
@@ -393,15 +433,20 @@ func monitorLoop(bauds []int, initialBaud int, portName ...string) {
 			if connectedPort == "" {
 				return
 			}
-			baudWasConfirmed := detection.confirmed
 			var reconnected bool
 			connectedPort, reconnected = reconnectRFIDPort(connectedPort, detection.current())
 			if !reconnected {
 				return
 			}
+			// Keep the current basket and its stability window across a brief
+			// USB/driver read interruption. Clearing it on every reconnect can
+			// leave the POS with visible items stuck in SCANNING forever if the
+			// reader keeps reopening but still has intermittent read errors.
+			fmt.Println("🧹 RFID byte decoder reset after reconnect; preserving current tag snapshot for stability check")
 			decoder = tagDecoder{}
 			detection = newBaudDetection(bauds, detection.current(), time.Now())
-			detection.confirmed = baudWasConfirmed
+			detection.confirmed = false
+			reportedReaderIssue = false
 			bytesSinceCheck = 0
 			continue
 		}

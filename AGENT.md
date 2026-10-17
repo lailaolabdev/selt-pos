@@ -16,7 +16,7 @@
 ## โครงสร้างปัจจุบัน
 
 - `client/`: React 19 + Vite + TypeScript + Tailwind + Zustand + TanStack Query
-  - `pages/POSPage.tsx`: หน้า POS อัตโนมัติ public ที่ `/` (ปัจจุบัน QR/การจ่ายเงินยังเป็น mock)
+  - `pages/POSPage.tsx`: หน้า POS อัตโนมัติ public ที่ `/` (เชื่อม PhaJay QR/Bio และ polling/socket ยืนยันสถานะ)
   - `pages/LoginPage.tsx`: หน้า login demo สำหรับเข้า admin
   - `pages/ProductsPage.tsx`: CRUD สินค้าและผูก RFID tags
   - `pages/InventoryPage.tsx`: สรุปจำนวน tag ที่มีสถานะ available
@@ -41,13 +41,23 @@
 - Checkout สร้าง `transactionId` ชั่วคราวและคำนวณจาก tag ที่ `available`
 - การขายจริงต้องเรียก `PATCH /tags/confirm-sale` เพื่อเปลี่ยน tag เป็น `sold`
 
+## พฤติกรรมที่ต้องคงไว้เมื่อแก้ flow
+
+- POS ต้องเริ่มรอบใหม่ด้วยปุ่ม Start; ก่อนเริ่มให้เป็น `IDLE` และช่วงชำระให้ล็อกตะกร้าเป็น `PAYMENT`
+- เมื่อชำระสำเร็จ ให้ล้างตะกร้าและกลับไปหน้ารอ Start สำหรับรอบถัดไป
+- เมื่อชำระไม่สำเร็จ ให้แสดงเหตุผลใน modal พร้อมทางเลือกชำระใหม่โดยเก็บตะกร้าเดิม หรือยกเลิกและกลับหน้า Start
+- หน้าเพิ่ม/แก้ไขสินค้าเริ่มอ่าน tag เมื่อผู้ใช้กด Start และหยุดรับเมื่อกดหยุด; ปิด modal ต้องคืน session เป็น `IDLE`
+- การเชื่อมต่อ session ต้องลองใหม่เมื่อเครือข่าย/socket/server กลับมา และ UI ต้องแยกสถานะเชื่อมต่อออกจากสถานะ session พร้อมใช้งาน
+- Go hub ส่ง snapshot เมื่อชุด tag หรือสถานะเปลี่ยน; silence ขณะชุด tag คงเดิมเป็นปกติ แต่เมื่อเริ่ม session ใหม่ต้อง reset สถานะ tag ภายใน hub เพื่อให้ตะกร้ารอบใหม่ถูกส่ง
+- เมื่อเน็ตช้าหรือขาดหาย การ retry capture ต้องส่ง snapshot ล่าสุด ไม่สร้างการขายซ้ำ และหน้าชำระต้องตรวจสถานะรายการเดิมก่อนสร้าง payment ใหม่
+
 ## กฎสำคัญสำหรับ agent
 
 ### ภาษาและ UX
 
 - ข้อความที่ผู้ใช้เห็นใน client ต้องเป็นภาษาลาวทั้งหมด รวม title, label, button, error, empty state, status และ dialog
 - ชื่อ field/API/internal code ใช้ภาษาอังกฤษได้เพื่อความเสถียรของโปรแกรม
-- ชื่อผลิตภัณฑ์ที่แสดงบนหน้าจอคือ `4B-easy-POS` และใช้ asset โลโก้ `client/public/logo.jpeg`
+- ชื่อผลิตภัณฑ์ที่แสดงบนหน้าจอและใบเสร็จคือ `SMART AUTO POS` และใช้ asset โลโก้ `client/public/logo.jpeg`
 - รวมข้อความ UI ไว้ในไฟล์ locale/translation เดียว ไม่กระจาย string ตาม component เมื่อเริ่มทำ localization
 - รองรับฟอนต์ลาวและตรวจการตัดบรรทัด/ขนาดตัวอักษรบนจอที่ใช้แสดงงาน
 - ปุ่มสำคัญต้องใช้งานด้วย touch ได้ง่าย และสถานะ RFID ต้องสื่อสารด้วยทั้งสีและข้อความ

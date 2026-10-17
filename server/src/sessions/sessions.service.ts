@@ -166,6 +166,27 @@ export class SessionsService {
     session.lastCapturedAt = now;
     await session.save();
 
+    // Acknowledge checkout tags before doing product lookups. The POS has a
+    // short empty-basket timeout; this keeps a slow database lookup from
+    // making the UI end the scan session while this capture is already being
+    // processed. The complete basket is emitted below after processing.
+    if (
+      session.currentMode === DeviceMode.CHECKOUT &&
+      cleanTagIds.length > 0 &&
+      status === 'SCANNING'
+    ) {
+      this.gateway.emitScanUpdate(deviceId, {
+        tagIds: cleanTagIds,
+        lastCapturedAt: session.lastCapturedAt,
+        mode: session.currentMode,
+        result: { tagIds: cleanTagIds, scannedTagIds: cleanTagIds },
+        status: 'SCANNING',
+        basketId,
+        basketKey,
+        isNewBasket,
+      });
+    }
+
     let result: Record<string, unknown>;
     switch (session.currentMode) {
       case DeviceMode.ADD:

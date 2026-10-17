@@ -71,10 +71,11 @@ func (p *scriptedReader) Read(buf []byte) (int, error) {
 }
 
 func TestReaderForwardsCompleteTagToServer(t *testing.T) {
-	previousPort, previousURL, previousTags := port, serverURL, tagLastSeen
+	previousPort, previousURL, previousTags, previousMode := port, serverURL, tagLastSeen, sessionMode
 	previousStable, previousNew, previousAny := isStable, lastNewTagTime, lastAnyTagTime
 	defer func() {
 		port, serverURL, tagLastSeen = previousPort, previousURL, previousTags
+		sessionMode = previousMode
 		isStable, lastNewTagTime, lastAnyTagTime = previousStable, previousNew, previousAny
 	}()
 	var payloads []struct {
@@ -100,6 +101,7 @@ func TestReaderForwardsCompleteTagToServer(t *testing.T) {
 	}))
 	defer s.Close()
 	serverURL = s.URL
+	sessionMode = "CHECKOUT"
 	tagLastSeen = make(map[string]time.Time)
 	port = &scriptedReader{chunks: [][]byte{[]byte("GARBAGE\xffDATA\n"), []byte("REAL-TAG"), []byte("-001\r\n")}, endAt: time.Now().Add(3300 * time.Millisecond)}
 	monitorLoop([]int{115200}, 115200)
