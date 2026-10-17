@@ -46,6 +46,7 @@ export const ProductsPage = () => {
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [formData, setFormData] = useState<ProductForm>(emptyProductForm);
     const [duplicateTagIds, setDuplicateTagIds] = useState<string[]>([]);
+    const [tagCaptureStarted, setTagCaptureStarted] = useState(false);
     const editRequest = useRef(0);
     const lastSeenTags = useRef(new Set<string>());
     const scannedTagIds = parseTagIds(formData.rfidTags);
@@ -76,7 +77,7 @@ export const ProductsPage = () => {
         return () => { cancelled = true; window.clearTimeout(timer); };
     }, [editingProduct?._id, showAddModal, tagKey]);
 
-    const rfid = useDeviceSession(showAddModal ? 'CHECK' : 'IDLE', data => {
+    const rfid = useDeviceSession(showAddModal && tagCaptureStarted ? 'CHECK' : 'IDLE', data => {
         if (!showAddModal) return;
         const newTags = uniqueTagIds([
             ...parseTagIds(data.tagIds),
@@ -174,6 +175,7 @@ export const ProductsPage = () => {
         setShowAddModal(false);
         setEditingProduct(null);
         setDuplicateTagIds([]);
+        setTagCaptureStarted(false);
         setFormData(emptyProductForm);
     };
 
@@ -197,6 +199,7 @@ export const ProductsPage = () => {
             expectedTagCount: 0,
         });
         setShowAddModal(true);
+        setTagCaptureStarted(false);
 
         try {
             const resp = await api.get(`/tags/product/${product._id}`);
@@ -326,7 +329,7 @@ export const ProductsPage = () => {
                         <div className="flex items-center justify-between border-b border-border pb-4">
                             <h3 className="text-2xl font-bold">{editingProduct ? 'ແກ້ໄຂສິນຄ້າ' : 'ເພີ່ມສິນຄ້າໃໝ່'}</h3>
                             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-secondary text-[10px] font-bold uppercase tracking-wider">
-                                {isConnected ? (
+                                {rfid.connected && isConnected ? (
                                     <>
                                         <Wifi className="w-3 h-3 text-green-500" />
                                         <span className="text-green-500">Server ພ້ອມຮັບ Tag</span>
@@ -418,8 +421,21 @@ export const ProductsPage = () => {
                                             {hasTooManyTags ? `· ເກີນ ${scannedTagIds.length - tagTarget}` : ''}
                                         </p>
                                     </div>
+                                    <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            lastSeenTags.current.clear();
+                                            setTagCaptureStarted(value => !value);
+                                        }}
+                                        disabled={!rfid.connected && !tagCaptureStarted}
+                                        className={cn("rounded-lg px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50", tagCaptureStarted ? "bg-amber-600 hover:bg-amber-700" : "bg-emerald-600 hover:bg-emerald-700")}
+                                    >
+                                        {tagCaptureStarted ? 'ຢຸດຮັບ Tag' : 'Start ຮັບ Tag'}
+                                    </button>
                                     {scannedTagIds.length > 0 && (
                                         <button
+                                            type="button"
                                             onClick={() => setFormData({ ...formData, rfidTags: '' })}
                                             className="text-[10px] font-bold text-destructive hover:underline flex items-center gap-1"
                                         >
@@ -427,6 +443,7 @@ export const ProductsPage = () => {
                                             ລ້າງ Tag
                                         </button>
                                     )}
+                                    </div>
                                 </div>
 
                                 <div className={cn(
@@ -454,7 +471,7 @@ export const ProductsPage = () => {
                                         </div>
                                     ) : (
                                         <div className="flex h-24 items-center justify-center text-center text-sm text-muted-foreground">
-                                            {isConnected ? "ວາງ tag ໃສ່ເຄື່ອງອ່ານ ລາຍການຈະຂຶ້ນທີ່ນີ້" : "ເຊື່ອມຕໍ່ເຄື່ອງອ່ານກ່ອນ"}
+                                            {!rfid.connected ? "ເຊື່ອມຕໍ່ server ບໍ່ໄດ້ — ກວດເຄືອຂ່າຍແລ້ວລອງໃໝ່" : !tagCaptureStarted ? "ກົດ Start ເພື່ອເລີ່ມຮັບ Tag ແລ້ວວາງໃສ່ເຄື່ອງອ່ານ" : !isConnected ? "ກຳລັງເຊື່ອມຕໍ່ RFID session..." : "ວາງ tag ໃສ່ເຄື່ອງອ່ານ ລາຍການຈະຂຶ້ນທີ່ນີ້"}
                                         </div>
                                     )}
                                 </div>
@@ -474,7 +491,7 @@ export const ProductsPage = () => {
                                     <Tag className="absolute right-4 top-4 w-4 h-4 text-muted-foreground opacity-20" />
                                 </div>
                                 <p className="text-[10px] text-muted-foreground italic">
-                                    {isConnected ? "ກຳລັງລໍຖ້າອ່ານ tag... ວາງ tag ຫຼາຍອັນໄດ້ ລະບົບຈະກັນຊ້ຳໃຫ້" : "ເຊື່ອມຕໍ່ເຄື່ອງອ່ານເພື່ອຮັບ tag ອັດຕະໂນມັດ"}
+                                    {!rfid.connected ? "ກວດສອບສາຍເນັດ ຫຼື server — ລະບົບຈະລອງເຊື່ອມຕໍ່ອີກ" : !tagCaptureStarted ? "ກົດ Start ກ່ອນວາງ Tag; ກົດຢຸດເມື່ອອ່ານຄົບ" : isConnected ? "ກຳລັງຮັບ Tag — ວາງ tag ຫຼາຍອັນໄດ້ ລະບົບຈະກັນຊ້ຳໃຫ້" : "ກຳລັງຕໍ່ RFID session ຄືນໃໝ່..."}
                                 </p>
                             </div>
                         </div>

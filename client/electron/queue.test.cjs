@@ -34,7 +34,12 @@ test('interrupted submission never automatically reprints', async () => {
 });
 test('receipt rejects unpaid or mismatched totals and escapes product markup', () => {
   const receipt = { status: 'PAID', orderNo: 'ORDER', amount: 1000, items: [{ name: '<script>alert(1)</script>', count: 1, subtotal: 1000 }] };
-  assert.match(receiptHtml(receipt, 58, 'data:font/woff2;base64,AA'), /&lt;script&gt;/);
+  const narrowReceipt = receiptHtml(receipt, 58, 'data:font/woff2;base64,AA');
+  const wideReceipt = receiptHtml(receipt, 80, 'data:font/woff2;base64,AA');
+  assert.match(narrowReceipt, /&lt;script&gt;/);
+  assert.match(narrowReceipt, /width: 54mm;\s*margin: 0 auto;/);
+  assert.match(wideReceipt, /size: 80mm auto;/);
+  assert.match(wideReceipt, /width: 64mm;\s*margin: 0 auto;/);
   assert.throws(() => receiptHtml({ ...receipt, status: 'WAITING' }, 80, ''));
   assert.throws(() => receiptHtml({ ...receipt, amount: 2000 }, 80, ''));
 });

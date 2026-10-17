@@ -60,19 +60,19 @@ export const useCartStore = create<CartState>((set) => ({
 
   setMode: (mode) => set({ mode }),
   
-  updateCart: (data) => set({
-    items: data.items || [],
-    totalPrice: data.totalPrice || 0,
-    tagIds: data.tagIds || [],
-    scannedTagIds: data.scannedTagIds || data.tagIds || [],
-    unknownTagIds: data.unknownTagIds || [],
-    unavailableTagIds: data.unavailableTagIds || [],
-    scannerStatus: data.status || 'IDLE',
-    basketId: data.basketId,
-    basketKey: data.basketKey,
-    isNewBasket: Boolean(data.isNewBasket),
-    isScanning: false,
-  }),
+  updateCart: (data) => set((state) => ({
+    items: data.items ?? state.items,
+    totalPrice: data.totalPrice ?? state.totalPrice,
+    tagIds: data.tagIds ?? state.tagIds,
+    scannedTagIds: data.scannedTagIds ?? data.tagIds ?? state.scannedTagIds,
+    unknownTagIds: data.unknownTagIds ?? state.unknownTagIds,
+    unavailableTagIds: data.unavailableTagIds ?? state.unavailableTagIds,
+    scannerStatus: data.status ?? state.scannerStatus,
+    basketId: data.basketId ?? state.basketId,
+    basketKey: data.basketKey ?? state.basketKey,
+    isNewBasket: data.isNewBasket ?? state.isNewBasket,
+    isScanning: data.status === 'SCANNING',
+  })),
 
   clearCart: () => set({
     items: [],

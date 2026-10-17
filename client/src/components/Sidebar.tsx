@@ -23,9 +23,9 @@ export const Sidebar = () => {
     return (
         <div className="flex flex-col h-screen w-72 bg-white border-r border-slate-200 p-5">
             <div className="flex items-center gap-2 px-2 py-4 mb-8">
-                <img src="/logo.jpeg" alt="4B For Business" className="w-12 h-12 object-contain" />
+                <img src="/logo.jpeg" alt="SMART AUTO POS" className="w-12 h-12 object-contain" />
                 <div>
-                    <h1 className="text-lg font-black tracking-tight text-slate-900">4B-easy-POS</h1>
+                    <h1 className="text-lg font-black tracking-tight text-slate-900">SMART AUTO POS</h1>
                     <p className="text-xs text-slate-500">ລະບົບຈັດການ Admin</p>
                 </div>
             </div>

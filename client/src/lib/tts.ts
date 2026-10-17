@@ -73,6 +73,30 @@ export const playPosSounds = (audioUrls: string[]) => {
   return soundQueue;
 };
 
+export const speakPos = (message: string) => {
+  if (!message || !('speechSynthesis' in window)) return soundQueue;
+
+  soundQueue = soundQueue
+    .then(() => new Promise<void>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(message);
+      const timeout = window.setTimeout(resolve, 8000);
+      const voices = window.speechSynthesis.getVoices();
+      const voice = voices.find(candidate => candidate.lang.toLowerCase().startsWith('lo'))
+        || voices.find(candidate => candidate.lang.toLowerCase().startsWith('th'));
+      utterance.lang = voice?.lang || 'lo-LA';
+      if (voice) utterance.voice = voice;
+      utterance.rate = 0.92;
+      utterance.onend = () => { window.clearTimeout(timeout); resolve(); };
+      utterance.onerror = () => { window.clearTimeout(timeout); resolve(); };
+      window.speechSynthesis.speak(utterance);
+    }))
+    .catch((error) => {
+      console.warn('POS speech failed:', error);
+    });
+
+  return soundQueue;
+};
+
 // Button feedback plays immediately and does not wait behind guidance sounds.
 export const playPosClick = () => {
   try {

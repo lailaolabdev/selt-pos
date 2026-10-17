@@ -56,10 +56,10 @@ export const LoginPage = () => {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-3xl shadow-2xl p-8 sm:p-10">
           <div className="flex justify-center mb-8">
-            <img src="/logo.jpeg" alt="4B For Business" className="w-32 h-32 object-contain" />
+            <img src="/logo.jpeg" alt="SMART AUTO POS" className="w-32 h-32 object-contain" />
           </div>
           <div className="text-center mb-8">
-            <p className="text-sm font-semibold text-indigo-600 tracking-[0.2em] uppercase">4B-easy-POS</p>
+            <p className="text-sm font-semibold text-indigo-600 tracking-[0.2em] uppercase">SMART AUTO POS</p>
             <h1 className="text-3xl font-black text-slate-900 mt-2">ເຂົ້າສູ່ລະບົບ Admin</h1>
         
           </div>

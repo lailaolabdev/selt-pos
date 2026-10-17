@@ -43,6 +43,7 @@ export function useDeviceSession(mode: DeviceMode, onScan?: (data: DeviceScan) =
   useEffect(() => {
     const lease = Symbol(deviceId);
     owner = lease;
+    setReady(false);
     let stopped = false;
     let configured = false;
     let running = false;
@@ -89,7 +90,11 @@ export function useDeviceSession(mode: DeviceMode, onScan?: (data: DeviceScan) =
       } finally { running = false; }
     };
     const onConnect = () => { setConnected(true); configured = false; void reconcile(); };
-    const onDisconnect = () => setConnected(false);
+    const onDisconnect = () => {
+      setConnected(false);
+      setReady(false);
+      setError('ເນັດຂາດການເຊື່ອມຕໍ່ — ກຳລັງລໍຖ້າເຊື່ອມຕໍ່ຄືນ');
+    };
     const onUpdate = (data: DeviceScan) => {
       if (data.deviceId !== deviceId || data.mode !== mode) return;
       eventSequence++;
